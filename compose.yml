@@ -24,7 +24,7 @@ services:
       - "15432:5432"
 
   neo4j:
-    image: neo4j:5
+    image: neo4j:2026.07.1
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-neo4j123456} 'RETURN 1'"]
