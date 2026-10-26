@@ -39,6 +39,11 @@ def _log(session: Session, task_type: str, status: str, message: str) -> None:
     session.commit()
 
 
+class SuggestionReviewRequest(BaseModel):
+    """建议工单审核请求：驳回时可附理由（回推教师）"""
+    review_note: str | None = None
+
+
 # ==================== 统计看板 ====================
 
 
@@ -484,6 +489,35 @@ def list_suggestions(
     }
 
 
+@router.get("/suggestions/mine")
+def list_my_suggestions(
+    session: SessionDep,
+    current_user: CurrentUser,
+    status: str = "",
+    skip: int = 0,
+    limit: int = 100,
+) -> Any:
+    """教师端：查看自己提交的共建建议工单及审核状态（回推闭环，无需管理员权限）"""
+    where = [KnowledgeSuggestion.submitter_id == current_user.id]
+    if status:
+        where.append(KnowledgeSuggestion.status == status)
+    count = session.exec(
+        select(func.count()).select_from(KnowledgeSuggestion).where(*where)
+    ).one()
+    statement = (
+        select(KnowledgeSuggestion)
+        .where(*where)
+        .order_by(col(KnowledgeSuggestion.created_at).desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    rows = session.exec(statement).all()
+    return {
+        "data": [SuggestionPublic.model_validate(r, from_attributes=True).model_dump() for r in rows],
+        "count": count,
+    }
+
+
 @router.post("/suggestions/{id}/approve")
 def approve_suggestion(
     id: uuid.UUID,
@@ -526,15 +560,22 @@ def approve_suggestion(
 @router.post("/suggestions/{id}/reject")
 def reject_suggestion(
     id: uuid.UUID,
+    *,
     session: SessionDep,
     current_user: User = Depends(get_current_active_superuser),
+    body: SuggestionReviewRequest | None = None,
 ) -> Any:
-    """驳回建议工单"""
+    """驳回建议工单（可附驳回理由，回推教师）"""
     sug = session.get(KnowledgeSuggestion, id)
     if not sug:
         raise HTTPException(status_code=404, detail="建议工单不存在")
+    # 与 approve 一致的「已处理」守卫：已审核通过的工单不可再驳回
+    if sug.status != "pending":
+        raise HTTPException(status_code=400, detail="该工单已处理")
     sug.status = "rejected"
+    if body and body.review_note:
+        sug.review_note = body.review_note
     session.add(sug)
     session.commit()
     _log(session, "candidate_review", "info", f"驳回建议工单「{sug.name}」")
-    return {"message": "已驳回"}
+    return {"message": "已驳回", "review_note": sug.review_note}

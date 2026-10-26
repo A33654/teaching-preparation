@@ -39,12 +39,28 @@ def _check_access(
     repo: KnowledgeGraphRepository,
     kp_id: str,
     current_user: Any,
+    edit: bool = False,
 ) -> dict:
-    """权限校验：存在且是本人的知识点（超级管理员放行）"""
+    """权限校验：知识库按组织隔离。
+
+    - 查看：本人 / 同组织成员 / 超级管理员 可见。
+    - 编辑（写关系、改/删节点）：仅本人或超级管理员。
+    """
     kp = repo.get_knowledge_point(kp_id)
     if not kp:
         raise HTTPException(status_code=404, detail="知识点不存在")
-    if not current_user.is_superuser and kp.get("owner_id") != str(current_user.id):
+    if current_user.is_superuser:
+        return kp
+    same_org = (
+        current_user.org_id is not None
+        and kp.get("org_id") is not None
+        and str(kp.get("org_id")) == str(current_user.org_id)
+    )
+    if edit:
+        if kp.get("owner_id") != str(current_user.id):
+            raise HTTPException(status_code=403, detail="无权编辑（仅本人或超管）")
+        return kp
+    if kp.get("owner_id") != str(current_user.id) and not same_org:
         raise HTTPException(status_code=403, detail="无权访问")
     return kp
 
@@ -54,10 +70,10 @@ def _check_access(
 
 @router.get("/graph/full", response_model=SubgraphResponse)
 def get_full_graph(session: SessionDep, current_user: CurrentUser) -> Any:
-    """获取当前用户所有知识点及其关系的全图（Neo4j）"""
+    """获取本组织所有知识点及其关系的全图（Neo4j，按组织隔离）"""
     repo = _repo()
-    owner_id = None if current_user.is_superuser else str(current_user.id)
-    graph = repo.get_full_graph(owner_id)
+    org_id = None if current_user.is_superuser else (str(current_user.org_id) if current_user.org_id else None)
+    graph = repo.get_full_graph(org_id=org_id)
     return SubgraphResponse(
         nodes=graph["nodes"],
         edges=[SubgraphEdge(**e) for e in graph["edges"]],
@@ -77,11 +93,11 @@ def read_knowledge_points(
     grade_level: str | None = Query(default=None, description="按学段筛选"),
     search: str | None = Query(default=None, description="按名称搜索"),
 ) -> Any:
-    """获取知识点列表（Neo4j），支持按学科、学段筛选和名称搜索"""
+    """获取知识点列表（Neo4j，本组织隔离），支持按学科、学段筛选和名称搜索"""
     repo = _repo()
-    owner_id = None if current_user.is_superuser else str(current_user.id)
+    org_id = None if current_user.is_superuser else (str(current_user.org_id) if current_user.org_id else None)
     items, count = repo.list_knowledge_points(
-        owner_id=owner_id,
+        org_id=org_id,
         skip=skip,
         limit=limit,
         subject=subject,
@@ -107,7 +123,7 @@ def read_knowledge_point(
 def create_knowledge_point(
     *, session: SessionDep, current_user: CurrentUser, kp_in: KnowledgePointCreate
 ) -> Any:
-    """创建新知识点（写入 Neo4j）"""
+    """创建新知识点（写入 Neo4j，归入当前组织）"""
     repo = _repo()
     kp = repo.create_knowledge_point(
         owner_id=str(current_user.id),
@@ -117,6 +133,7 @@ def create_knowledge_point(
         grade_level=kp_in.grade_level.value if kp_in.grade_level else None,
         difficulty=kp_in.difficulty,
         is_key_point=kp_in.is_key_point,
+        org_id=str(current_user.org_id) if current_user.org_id else None,
     )
     return KnowledgePointOut(**kp)
 
@@ -237,10 +254,10 @@ def search_knowledge(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> Any:
-    """用自然语言关键词搜索知识图谱节点（Neo4j）"""
+    """用自然语言关键词搜索知识图谱节点（Neo4j，本组织隔离）"""
     repo = _repo()
-    owner_id = None if current_user.is_superuser else str(current_user.id)
-    results = repo.search_knowledge_points(body.query, owner_id, top_k=body.top_k)
+    org_id = None if current_user.is_superuser else (str(current_user.org_id) if current_user.org_id else None)
+    results = repo.search_knowledge_points(body.query, owner_id=None, org_id=org_id, top_k=body.top_k)
     return {"query": body.query, "results": results}
 
 
@@ -261,8 +278,9 @@ def chapter_context(
     系统自动加载本章图谱结构（知识点清单 + 前置依赖 + 完整度判断）。
     """
     repo = _repo()
-    # 知识库为全局共享图谱（管理员审核维护），备课联动不过滤 owner
-    hits = repo.search_knowledge_points(body.chapter, None, top_k=20)
+    # 知识库按组织隔离：备课联动检索本组织知识点（不再全局共享）
+    org_id = str(current_user.org_id) if current_user.org_id else None
+    hits = repo.search_knowledge_points(body.chapter, owner_id=None, org_id=org_id, top_k=20)
 
     # 每个命中的知识点补充前置依赖 + 考点 + 误区信息
     enriched = []
@@ -292,21 +310,21 @@ def chapter_context(
             }
         )
 
-    # 知识库完整度评分：命中核心知识点占比（区别于简单数量统计）
+    # 知识库完整度评分：命中本章核心知识点数量决定驱动方式
+    # （与设计文档一致：命中 >=3 个核心知识点 -> 图谱完整驱动；0 -> 未收录 RAG 兜底；其余 -> 部分缺失）
+    # 注：原实现按「命中占全学科核心点比例 >=0.8」判定，单章节检索无论如何无法达到，
+    # 导致哪怕已建库也始终显示「RAG 兜底」，掩盖了知识图谱差异化卖点；改为按本章命中数判定。
     key_hit = sum(1 for k in hits if k.get("is_key_point"))
-    key_total = repo.count_key_points(body.subject or None)
     if not hits:
         coverage = "missing"
         message = "知识库尚未收录本章节，将自动 RAG 兜底增强"
-    elif key_total > 0 and key_hit / key_total >= 0.8:
+    elif key_hit >= 3:
         coverage = "complete"
-        message = f"知识库完整（核心知识点覆盖 {key_hit}/{key_total}），将基于图谱 + 教材精准生成教案"
+        message = f"知识库完整（命中核心知识点 {key_hit} 个），将基于图谱 + 教材精准生成教案"
     else:
         coverage = "partial"
         message = (
-            f"知识库部分缺失（核心知识点覆盖 {key_hit}/{key_total}），将自动 RAG 兜底增强"
-            if key_total > 0
-            else "知识库部分缺失，将自动 RAG 兜底增强"
+            f"知识库部分缺失（仅命中 {key_hit} 个核心知识点），将自动 RAG 兜底增强"
         )
 
     # ==================== 图谱计算的业务清单 ====================

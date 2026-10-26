@@ -59,6 +59,30 @@ const router = createRouter({
           meta: { title: "教案编辑" },
         },
         {
+          path: "homework",
+          name: "homework",
+          component: () => import("@/views/HomeworkView.vue"),
+          meta: { title: "作业管理" },
+        },
+        {
+          path: "homework/:id/edit",
+          name: "homework-edit",
+          component: () => import("@/views/HomeworkEditView.vue"),
+          meta: { title: "作业编辑" },
+        },
+        {
+          path: "homework/:homeworkId/grading",
+          name: "homework-grading",
+          component: () => import("@/views/GradingView.vue"),
+          meta: { title: "智能批改" },
+        },
+        {
+          path: "homework/:homeworkId/analytics",
+          name: "homework-analytics",
+          component: () => import("@/views/ErrorDashboardView.vue"),
+          meta: { title: "错误聚合看板" },
+        },
+        {
           path: "documents",
           name: "documents",
           component: () => import("@/views/DocumentsView.vue"),
@@ -80,6 +104,12 @@ const router = createRouter({
           name: "ppt",
           component: () => import("@/views/PptView.vue"),
           meta: { title: "PPT 生成" },
+        },
+        {
+          path: "my-suggestions",
+          name: "my-suggestions",
+          component: () => import("@/views/MySuggestionsView.vue"),
+          meta: { title: "我的共建" },
         },
         {
           path: "settings",

@@ -88,12 +88,86 @@
         <el-card class="panel">
           <template #header>操作</template>
           <div class="ops">
+            <el-button type="success" :loading="generating" @click="generateHomework">
+              📝 生成作业
+            </el-button>
             <el-button type="primary" @click="exportWord">导出 Word</el-button>
             <el-button :loading="regenerating" @click="regenerate">重新生成</el-button>
             <el-button @click="submitDialog = true">✨ 提交缺失知识点</el-button>
           </div>
           <div class="ops-tip">
             教案中涉及但图谱缺失的知识点，可手动补充提交至管理员审核队列
+          </div>
+        </el-card>
+
+        <!-- 课堂习题：作为「一键生成作业」的初始题目来源 -->
+        <el-card class="panel">
+          <template #header>
+            <div class="ex-card-head">
+              <span>课堂习题</span>
+              <span class="ex-count">{{ exercises.length }}</span>
+            </div>
+          </template>
+          <div v-if="!exercises.length" class="ex-empty">
+            尚未录入课堂习题。录入后点击「生成作业」将以此为初始题目。
+          </div>
+          <div v-for="(ex, i) in exercises" :key="ex.id" class="ex-item">
+            <div class="ex-head">
+              <b class="ex-no">{{ i + 1 }}</b>
+              <el-select v-model="ex.type" size="small" class="ex-type">
+                <el-option label="选择" value="choice" />
+                <el-option label="填空" value="fill" />
+                <el-option label="简答" value="short" />
+                <el-option label="论述" value="essay" />
+              </el-select>
+              <div class="spacer" />
+              <el-button size="small" text type="danger" @click="exercises.splice(i, 1)">删除</el-button>
+            </div>
+            <el-input v-model="ex.stem" type="textarea" :rows="2" placeholder="题干" class="ex-stem" />
+
+            <div v-if="ex.type === 'choice'" class="ex-body">
+              <div v-for="(_o, oi) in ex.options || []" :key="oi" class="ex-row">
+                <el-input
+                  v-model="ex.options![oi]"
+                  size="small"
+                  :placeholder="`选项 ${String.fromCharCode(65 + oi)}`"
+                />
+                <el-button size="small" text type="danger" @click="ex.options!.splice(oi, 1)">×</el-button>
+              </div>
+              <el-button size="small" @click="ex.options!.push('')">+ 选项</el-button>
+              <div class="ex-correct">
+                <span class="ex-label">正确答案</span>
+                <el-radio-group v-model="ex.correct_option" size="small">
+                  <el-radio v-for="(_o, oi) in ex.options || []" :key="oi" :value="oi">
+                    {{ String.fromCharCode(65 + oi) }}
+                  </el-radio>
+                </el-radio-group>
+              </div>
+            </div>
+
+            <div v-else-if="ex.type === 'fill'" class="ex-body">
+              <div class="ex-label">答案（支持多解）</div>
+              <div v-for="(_a, ai) in ex.answers || []" :key="ai" class="ex-row">
+                <el-input v-model="ex.answers![ai]" size="small" placeholder="一个可接受答案" />
+                <el-button size="small" text type="danger" @click="ex.answers!.splice(ai, 1)">×</el-button>
+              </div>
+              <el-button size="small" @click="ex.answers!.push('')">+ 答案</el-button>
+            </div>
+
+            <div v-else class="ex-body">
+              <el-input
+                v-model="ex.reference_answer"
+                type="textarea"
+                :rows="2"
+                placeholder="参考答案"
+              />
+            </div>
+          </div>
+          <div class="ex-foot">
+            <el-button size="small" @click="addExercise">+ 新增习题</el-button>
+            <el-button size="small" type="primary" :loading="savingEx" @click="saveExercises">
+              保存习题
+            </el-button>
           </div>
         </el-card>
       </div>
@@ -159,8 +233,8 @@ import { useRoute, useRouter } from "vue-router"
 import { ElMessage } from "element-plus"
 import { Loading } from "@element-plus/icons-vue"
 import { marked } from "marked"
-import { adminApi, authorizedFetch, lessonPlansApi, streamChat } from "@/api"
-import type { LessonPlan } from "@/types"
+import { adminApi, authorizedFetch, homeworkApi, lessonPlansApi, streamChat } from "@/api"
+import type { ClassroomExercise, LessonPlan } from "@/types"
 
 const route = useRoute()
 const router = useRouter()
@@ -173,6 +247,56 @@ const submitDialog = ref(false)
 const submitting = ref(false)
 const submittedCandidate = ref(false)
 const candForm = ref({ name: "", subject: "", grade_level: "初中", definition: "", prerequisites: "" })
+
+// 课堂习题（一键生成作业的初始题目来源）
+const exercises = ref<ClassroomExercise[]>([])
+const savingEx = ref(false)
+const generating = ref(false)
+
+function newId() {
+  return (globalThis.crypto?.randomUUID?.() as string) || String(Date.now() + Math.random())
+}
+
+function addExercise() {
+  exercises.value.push({
+    id: newId(),
+    type: "short",
+    stem: "",
+    options: [],
+    correct_option: null,
+    answers: [],
+    reference_answer: "",
+  })
+}
+
+async function saveExercises() {
+  if (!plan.value) return
+  savingEx.value = true
+  try {
+    await lessonPlansApi.update(plan.value.id, { classroom_exercises: exercises.value })
+    ElMessage.success("课堂习题已保存")
+  } catch {
+    // 拦截器已提示
+  } finally {
+    savingEx.value = false
+  }
+}
+
+// FR-01：从教案一键生成作业 —— 先落库最新习题，再生成并跳转作业编辑页
+async function generateHomework() {
+  if (!plan.value) return
+  generating.value = true
+  try {
+    await lessonPlansApi.update(plan.value.id, { classroom_exercises: exercises.value })
+    const { data } = await homeworkApi.generateFromLessonPlan(plan.value.id)
+    ElMessage.success("已生成作业（题目与知识点已预填）")
+    router.push(`/homework/${data.id}/edit`)
+  } catch {
+    // 拦截器已提示
+  } finally {
+    generating.value = false
+  }
+}
 
 // 教案润色助手（聊天降级：仅做二次修改交互）
 const polishInput = ref("")
@@ -249,6 +373,16 @@ onMounted(async () => {
     plan.value = resp.data
     candForm.value.subject = resp.data.subject
     candForm.value.grade_level = resp.data.grade_level || "初中"
+    // 课堂习题预填（回显已保存的习题）
+    exercises.value = (resp.data.classroom_exercises || []).map((ex) => ({
+      id: ex.id || newId(),
+      type: ex.type || "short",
+      stem: ex.stem || "",
+      options: ex.options || [],
+      correct_option: ex.correct_option ?? null,
+      answers: ex.answers || [],
+      reference_answer: ex.reference_answer || "",
+    }))
   } catch {
     // 拦截器已提示
   }
@@ -368,4 +502,21 @@ async function submitCandidate() {
 .markdown-body :deep(p) { line-height: 1.8; margin: 6px 0; }
 .markdown-body :deep(table) { border-collapse: collapse; width: 100%; margin: 10px 0; }
 .markdown-body :deep(th), .markdown-body :deep(td) { border: 1px solid #dcdfe6; padding: 6px 10px; text-align: left; }
+
+/* 课堂习题 */
+.ex-card-head { display: flex; justify-content: space-between; align-items: center; }
+.ex-count { font-size: 12px; color: #909399; font-weight: 400; }
+.ex-empty { color: #909399; font-size: 12px; padding: 8px 0; line-height: 1.6; }
+.ex-item { border: 1px solid #ebeef5; border-radius: 6px; padding: 8px; margin-bottom: 8px; background: #fafbfc; }
+.ex-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ex-no { font-size: 12px; color: #606266; min-width: 14px; }
+.ex-type { width: 92px; }
+.ex-stem { margin-bottom: 6px; }
+.ex-body { border-top: 1px dashed #ebeef5; padding-top: 6px; margin-top: 4px; }
+.ex-row { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
+.ex-row .el-input { max-width: 240px; }
+.ex-correct { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.ex-label { font-size: 12px; color: #909399; }
+.ex-foot { display: flex; gap: 6px; margin-top: 8px; }
+.spacer { flex: 1; }
 </style>

@@ -296,6 +296,53 @@ async def generate_ppt(
     )
 
 
+# ==================== 文本直接生成 PPT（无需上传文件） ====================
+
+
+class GeneratePptFromTextRequest(BaseModel):
+    title: str
+    text: str
+    style: str = "professional"
+    slide_count: int = 8
+
+
+@router.post("/generate-ppt-from-text")
+async def generate_ppt_from_text(
+    *, session: SessionDep, current_user: CurrentUser, body: GeneratePptFromTextRequest,
+):
+    """根据传入文本（如教案内容）直接生成 PPT，无需重新上传文件。"""
+    text = (body.text or "").strip()
+    if len(text) < 10:
+        raise HTTPException(status_code=400, detail="文本内容过短，无法生成 PPT")
+    slide_count = max(4, min(20, body.slide_count))
+    slides_data = run_ppt_outline(text, style=body.style, slide_count=slide_count)
+    safe_name = (body.title or "presentation").strip()[:30] or "presentation"
+    buffer = _build_pptx(safe_name, slides_data, style=body.style)
+    ppt_path = f"uploads/ppt/{uuid.uuid4()}.pptx"
+    os.makedirs("uploads/ppt", exist_ok=True)
+    with open(ppt_path, "wb") as f:
+        f.write(buffer.getvalue())
+    buffer.seek(0)
+    record = PptRecord(
+        title=safe_name,
+        original_filename=f"{safe_name}.txt",
+        file_path=ppt_path,
+        file_size=len(buffer.getvalue()),
+        slide_count=len(slides_data),
+        extracted_text=text[:5000] if text else "",
+        slides_json=json.dumps(slides_data, ensure_ascii=False),
+        style=body.style,
+        owner_id=current_user.id,
+    )
+    session.add(record)
+    session.commit()
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(safe_name)}.pptx"},
+    )
+
+
 # ==================== PPT 列表 & 导出 ====================
 
 
@@ -314,6 +361,21 @@ def list_ppts(session: SessionDep, current_user: CurrentUser, skip: int = 0, lim
         data=[PptRecordPublic.model_validate(r) for r in records],
         count=count,
     )
+
+
+@router.get("/ppt/{ppt_id}", response_model=PptRecordPublic)
+def get_ppt(ppt_id: str, session: SessionDep, current_user: CurrentUser):
+    """获取单个 PPT 记录详情（slides_json 含每页要点，供前端编辑/预览复用）"""
+    try:
+        uid = uuid.UUID(ppt_id)
+    except ValueError:
+        raise HTTPException(400, "无效ID")
+    rec = session.get(PptRecord, uid)
+    if not rec:
+        raise HTTPException(404, "PPT不存在")
+    if not current_user.is_superuser and rec.owner_id != current_user.id:
+        raise HTTPException(403, "无权访问")
+    return rec
 
 
 class SavePptRequest(BaseModel):
@@ -340,7 +402,7 @@ def save_ppt(ppt_id: str, *, session: SessionDep, current_user: CurrentUser, bod
     session.add(rec)
     session.commit()
 
-    buf = _build_pptx(rec.title, body.slides, accent=(0xE8, 0x91, 0xB0))
+    buf = _build_pptx(rec.title, body.slides, style=body.style or "professional")
     with open(rec.file_path, "wb") as f:
         f.write(buf.getvalue())
     buf.seek(0)

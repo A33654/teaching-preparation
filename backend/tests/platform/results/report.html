@@ -1,0 +1,61 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>测试自动化平台 · 报告</title><style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --ink:#1f2933; --muted:#647084;
+  --line:#e3e8ef; --ok:#1f9d55; --warn:#d9822b; --bad:#e0483e; --accent:#2f6fed;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:14px;line-height:1.6}
+header{background:linear-gradient(120deg,#2f6fed,#5b8def);color:#fff;padding:22px 28px}
+header h1{margin:0;font-size:20px}
+header .sub{opacity:.9;font-size:12px;margin-top:4px}
+.wrap{max-width:1080px;margin:0 auto;padding:20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:18px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card .k{font-size:12px;color:var(--muted)}
+.card .v{font-size:26px;font-weight:700;margin-top:4px}
+.card .v.ok{color:var(--ok)} .card .v.warn{color:var(--warn)} .card .v.bad{color:var(--bad)}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin:14px 0}
+section h2{margin:0 0 12px;font-size:16px;border-left:4px solid var(--accent);padding-left:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+.badge.pass{background:#e6f6ec;color:var(--ok)}
+.badge.fail{background:#fdecea;color:var(--bad)}
+.badge.partial{background:#fef3e2;color:var(--warn)}
+.badge.na{background:#eef1f5;color:var(--muted)}
+.bar{height:8px;background:#eef1f5;border-radius:6px;overflow:hidden}
+.bar > i{display:block;height:100%;background:var(--accent)}
+.checklist li{margin:6px 0}
+footer{color:var(--muted);font-size:12px;text-align:center;padding:18px}
+</style></head>
+<body><header><h1>教师智能备课系统 · 测试报告</h1>
+<div class="sub">生成时间 2026-10-26 19:26:16 · 环境 127.0.0.1:18000 · mock_external=True</div></header>
+<div class="wrap">
+    <div class="cards">
+      <div class="card"><div class="k">总体状态</div><div class="v pass"><span class="badge pass">通过</span></div></div>
+      <div class="card"><div class="k">用例总数</div><div class="v">223</div></div>
+      <div class="card"><div class="k">通过率</div><div class="v warn">92.8%</div></div>
+      <div class="card"><div class="k">AI 评测均分</div><div class="v">4.6</div></div>
+      <div class="card"><div class="k">性能场景</div><div class="v">0</div></div>
+    </div>
+        <section><h2>单元测试 (L0)</h2>
+          <p>通过率 <b>100.0%</b> · 总计 41 · 通过 41 · 失败 0 · 错误 0 <span class="badge pass">通过</span></p>
+          <div class="bar"><i style="width:100.0%"></i></div>
+          <table><thead><tr><th>用例</th><th>结果</th><th>说明</th></tr></thead><tbody><tr><td>test_export_rows_contain_no_plaintext_identity</td><td>passed</td><td></td></tr><tr><td>test_anonymous_identity_is_hash_derived</td><td>passed</td><td></td></tr><tr><td>test_export_rows_detail_structure</td><td>passed</td><td></td></tr><tr><td>test_write_xlsx_file_has_no_plaintext</td><td>passed</td><td></td></tr><tr><td>test_write_pdf_file_is_generated</td><td>passed</td><td></td></tr><tr><td>test_extract_wrong_expression_choice_and_text</td><td>passed</td><td></td></tr><tr><td>test_is_wrong_for_objective_and_subjective</td><td>passed</td><td></td></tr><tr><td>test_fr04_labeled_set_accuracy_at_least_95_percent</td><td>passed</td><td></td></tr><tr><td>test_fr04_every_judgement_is_traceable</td><td>passed</td><td></td></tr><tr><td>test_fr04_misjudged_records_carry_detail</td><td>passed</td><td></td></tr><tr><td>test_choice_normalization_index_letter_text</td><td>passed</td><td></td></tr><tr><td>test_fill_normalization_punctuation_and_case</td><td>passed</td><td></td></tr><tr><td>test_fill_missing_reference_answer_is_ungradable</td><td>passed</td><td></td></tr><tr><td>test_non_objective_question_is_not_graded_by_rules</td><td>passed</td><td></td></tr><tr><td>test_fr05_ai_suggestion_shape_and_confidence_rule</td><td>passed</td><td></td></tr><tr><td>test_fr05_empty_answer_forces_human_review</td><td>passed</td><td></td></tr><tr><td>test_hash_verify_roundtrip</td><td>passed</td><td></td></tr><tr><td>test_wrong_password_rejected</td><td>passed</td><td></td></tr><tr><td>test_empty_password_handled</td><td>passed</td><td></td></tr><tr><td>test_long_password_boundary</td><td>passed</td><td></td></tr><tr><td>test_unicode_password</td><td>passed</td><td></td></tr><tr><td>test_token_is_decodable</td><td>passed</td><td></td></tr><tr><td>test_expired_token_raises</td><td>passed</td><td></td></tr><tr><td>test_tampered_token_raises</td><td>passed</td><td></td></tr><tr><td>test_expiry_near_boundary</td><td>passed</td><td></td></tr><tr><td>test_superuser_has_all_permissions</td><td>passed</td><td></td></tr><tr><td>test_new_user_no_permissions</td><td>passed</td><td></td></tr><tr><td>test_org_chain_no_cycle</td><td>passed</td><td></td></tr><tr><td>test_valid_user</td><td>passed</td><td></td></tr><tr><td>test_invalid_email_rejected</td><td>passed</td><td></td></tr><tr><td>test_empty_email_rejected</td><td>passed</td><td></td></tr><tr><td>test_missing_password_rejected</td><td>passed</td><td></td></tr><tr><td>test_valid_lesson_plan</td><td>passed</td><td></td></tr><tr><td>test_empty_title_rejected</td><td>passed</td><td></td></tr><tr><td>test_empty_subject_rejected</td><td>passed</td><td></td></tr><tr><td>test_title_max_length_boundary</td><td>passed</td><td></td></tr><tr><td>test_subject_max_length_boundary</td><td>passed</td><td></td></tr><tr><td>test_missing_required_fields</td><td>passed</td><td></td></tr><tr><td>test_valid_item</td><td>passed</td><td></td></tr><tr><td>test_empty_title_rejected</td><td>passed</td><td></td></tr><tr><td>test_title_boundary</td><td>passed</td><td></td></tr></tbody></table>
+        </section>
+        <section><h2>接口功能 (L1)</h2>
+          <p>通过率 <b>91.2%</b> · 总计 182 · 通过 166 · 失败 0 · 错误 0 <span class="badge pass">通过</span></p>
+          <div class="bar"><i style="width:91.2%"></i></div>
+          <table><thead><tr><th>用例</th><th>结果</th><th>说明</th></tr></thead><tbody><tr><td>test_submit_and_list</td><td>passed</td><td></td></tr><tr><td>test_teacher_cannot_list_candidates</td><td>passed</td><td></td></tr><tr><td>test_approve_writes_graph</td><td>passed</td><td></td></tr><tr><td>test_reject_candidate</td><td>passed</td><td></td></tr><tr><td>test_approve_missing</td><td>passed</td><td></td></tr><tr><td>test_batch_approve_requires_selection</td><td>passed</td><td></td></tr><tr><td>test_batch_approve_empty_list</td><td>passed</td><td></td></tr><tr><td>test_submit_list_mine</td><td>passed</td><td></td></tr><tr><td>test_teacher_cannot_list_all_suggestions</td><td>passed</td><td></td></tr><tr><td>test_approve_and_reject_suggestion</td><td>passed</td><td></td></tr><tr><td>test_reject_approved_suggestion_should_400</td><td>skipped</td><td></td></tr><tr><td>test_stats_superuser_only</td><td>passed</td><td></td></tr><tr><td>test_logs</td><td>passed</td><td></td></tr><tr><td>test_graph_quality_check</td><td>passed</td><td></td></tr><tr><td>test_empty_message_json</td><td>passed</td><td></td></tr><tr><td>test_empty_message_sse</td><td>passed</td><td></td></tr><tr><td>test_json_mode_answer</td><td>passed</td><td></td></tr><tr><td>test_sse_mode_stream</td><td>passed</td><td></td></tr><tr><td>test_create_and_list</td><td>passed</td><td></td></tr><tr><td>test_create_empty_name</td><td>skipped</td><td></td></tr><tr><td>test_delete_missing</td><td>passed</td><td></td></tr><tr><td>test_delete_invalid_uuid</td><td>passed</td><td></td></tr><tr><td>test_create_and_list</td><td>passed</td><td></td></tr><tr><td>test_create_invalid_subject_id</td><td>skipped</td><td></td></tr><tr><td>test_delete_missing</td><td>passed</td><td></td></tr><tr><td>test_create_list_tree</td><td>passed</td><td></td></tr><tr><td>test_reorder_and_update</td><td>passed</td><td></td></tr><tr><td>test_invalid_textbook_id</td><td>passed</td><td></td></tr><tr><td>test_delete_missing</td><td>passed</td><td></td></tr><tr><td>test_dashboard_returns_structure</td><td>passed</td><td></td></tr><tr><td>test_dashboard_invalid_id</td><td>passed</td><td></td></tr><tr><td>test_dashboard_missing_subject</td><td>passed</td><td></td></tr><tr><td>test_upload_txt</td><td>passed</td><td></td></tr><tr><td>test_upload_triggers_analysis</td><td>passed</td><td></td></tr><tr><td>test_upload_invalid_type</td><td>passed</td><td></td></tr><tr><td>test_upload_empty_file</td><td>passed</td><td></td></tr><tr><td>test_list_and_detail</td><td>passed</td><td></td></tr><tr><td>test_detail_missing</td><td>passed</td><td></td></tr><tr><td>test_detail_no_auth</td><td>passed</td><td></td></tr><tr><td>test_delete</td><td>passed</td><td></td></tr><tr><td>test_teacher_cannot_see_others_doc</td><td>passed</td><td></td></tr><tr><td>test_search_matches_document_text</td><td>passed</td><td></td></tr><tr><td>test_search_missing_query</td><td>passed</td><td></td></tr><tr><td>test_create_and_get</td><td>passed</td><td></td></tr><tr><td>test_list_and_full_graph</td><td>passed</td><td></td></tr><tr><td>test_create_empty_name</td><td>passed</td><td></td></tr><tr><td>test_get_missing</td><td>passed</td><td></td></tr><tr><td>test_get_no_auth</td><td>passed</td><td></td></tr><tr><td>test_update_and_delete</td><td>passed</td><td></td></tr><tr><td>test_teacher_cannot_access_others_kp</td><td>passed</td><td></td></tr></tbody></table>
+        </section>
+        <section><h2>AI 评测 (L3)</h2>
+          <p>rubric 均分 <b>4.6</b> (合格线 4.0) ·
+             知识点覆盖率 <b>-%</b> · 前置断点 <b>0</b> ·
+             流式完整率 <b>100.0%</b> <span class="badge pass">通过</span></p>
+          <table><thead><tr><th>评测用例</th><th>rubric</th><th>覆盖%</th><th>状态</th></tr></thead><tbody><tr><td></td><td></td><td>%</td><td><span class="badge na">无数据</span></td></tr><tr><td></td><td></td><td>%</td><td><span class="badge na">无数据</span></td></tr><tr><td></td><td></td><td>%</td><td><span class="badge na">无数据</span></td></tr></tbody></table>
+        </section><section><h2>合格指标核验</h2><ul class='checklist'><li><span class="badge pass">通过</span> 单元测试通过率 — 100.0% (合格线 ≥95.0%): 通过 41/41</li><li><span class="badge fail">未通过</span> 接口功能通过率 — 91.2% (合格线 ≥95.0%): 通过 166/182</li><li><span class="badge pass">通过</span> AI rubric 均分 — 4.6 (合格线 ≥4.0): </li><li><span class="badge pass">通过</span> 前置链断点 — 0 (合格线 ≤0): </li></ul></section></div>
+<footer>由自建测试自动化平台生成 · 数据源 results.json</footer></body></html>

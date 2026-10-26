@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>教师备课系统 · 项目测试与缺陷修复报告</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --border:#e3e6ec; --text:#1f2329; --muted:#6b7280;
+    --green:#1a7f37; --green-bg:#e8f5ec; --red:#c0392b; --red-bg:#fdecea;
+    --amber:#b7791f; --amber-bg:#fdf3e3; --blue:#1f6feb; --blue-bg:#eaf1fe;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:32px 20px;background:var(--bg);color:var(--text);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;line-height:1.65;}
+  .wrap{max-width:1100px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+  h2{font-size:18px;margin:32px 0 12px;padding-left:10px;border-left:4px solid var(--blue)}
+  h3{font-size:15px;margin:18px 0 8px;color:#374151}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:8px}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .kpi .label{font-size:12px;color:var(--muted)}
+  .kpi .value{font-size:24px;font-weight:600;margin-top:4px}
+  .kpi .note{font-size:12px;color:var(--muted);margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;background:var(--card)}
+  th,td{border:1px solid var(--border);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:#f1f3f7;font-weight:600}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600}
+  .t-pass{background:var(--green-bg);color:var(--green)}
+  .t-fail{background:var(--red-bg);color:var(--red)}
+  .t-warn{background:var(--amber-bg);color:var(--amber)}
+  .t-info{background:var(--blue-bg);color:var(--blue)}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:3px 0}
+  code{background:#f1f3f7;padding:1px 5px;border-radius:4px;font-size:12.5px;font-family:Consolas,monospace}
+  .small{font-size:12.5px;color:var(--muted)}
+  .foot{margin-top:28px;padding-top:14px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>教师备课系统 · 测试与缺陷修复报告</h1>
+  <div class="sub">第二轮（修复 + 性能验证）｜2026-10-26 20:10｜工作区 E:\work\tty-main\tty-main</div>
+
+  <div class="grid">
+    <div class="kpi"><div class="label">缺陷修复</div><div class="value">16 / 16</div><div class="note">xfail 全部摘除并转绿</div></div>
+    <div class="kpi"><div class="label">后端用例</div><div class="value">236 全绿</div><div class="note">修复前 220 pass + 16 xfail</div></div>
+    <div class="kpi"><div class="label">代码覆盖率</div><div class="value">72%</div><div class="note">修复前 71%</div></div>
+    <div class="kpi"><div class="label">端到端验证</div><div class="value">8 / 8</div><div class="note">真实 PostgreSQL 环境</div></div>
+    <div class="kpi"><div class="label">并发 10 达标</div><div class="value">6 / 7</div><div class="note">仅登录 P95 超标</div></div>
+    <div class="kpi"><div class="label">并发 50 达标</div><div class="value" style="color:var(--red)">0 / 7</div><div class="note">高并下发散，见第 5 节</div></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">本轮结论</h3>
+    <p style="margin:0">第一轮发现的 <strong>16 个缺陷已全部修复</strong>：入参校验补齐、PRD §7 异常清单落地、埋点通道建成、超管越权写入被拦截、作业截止入口补齐、回流幂等实现。
+    后端 236 个用例全部通过（无 xfail），覆盖率 71%→72%，前端类型检查与构建通过，并在<strong>真实 PostgreSQL 服务上完成 8 项端到端验证</strong>。
+    性能方面暴露一个<strong>与并发无关的真实问题</strong>：登录接口在并发 10 时 P50 已达 619ms（阈值 500ms），根因是密码哈希成本；其余读接口低并发达标，但并发 50 时 P95 普遍劣化到 300~1100ms，属于单实例容量瓶颈。
+    另发现两项工程隐患：Alembic 迁移在建表阶段报错，以及 8 个 JMeter 脚本与本机 JMeter 5.6.3 不兼容。</p>
+  </div>
+
+  <h2>1. 缺陷修复清单（16 项）</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th style="width:15%">编号</th><th style="width:34%">缺陷</th><th>修复方式</th><th style="width:8%">状态</th></tr></thead>
+      <tbody>
+        <tr><td>EXL-00a</td><td>TextbookCreate.subject_id 传非法 UUID → 500</td><td>字段类型 <code>str</code> → <code>uuid.UUID</code>，由 pydantic 前置拦截为 422；路由去掉手工 <code>uuid.UUID()</code> 转换</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-00b</td><td>SubjectCreate.name / ScheduleCreate.subject / TaskCreate.title 空串被接受</td><td>三个 schema 增加 <code>min_length=1</code></td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-00c</td><td>已审核通过的建议工单仍可再次驳回（返回 200）</td><td><code>reject_suggestion</code> 补上 <code>status != "pending"</code> 守卫，返回 400</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-01</td><td>AI 失败静默降级，未标记「AI 不可用，转人工」</td><td><code>ai_grade_subjective</code> 捕获 LLM 异常，回退启发式并置 <code>ai_unavailable=True</code>、评语前置提示；新增 <code>SubmissionGrade.ai_unavailable</code> 列</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-02</td><td>低置信度仍可一键采纳 AI 建议</td><td><code>finalize_grade</code> 校验 <code>ai_confidence &lt; 0.7</code> 或 <code>ai_unavailable</code> 时拒绝采纳（422），阈值统一为 <code>settings.AI_CONFIDENCE_HUMAN_THRESHOLD</code></td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-03</td><td>缺标准答案的客观题可发布</td><td><code>publish</code> 增加校验：选择题需 <code>correct_option</code>、填空题需 <code>answers</code>，返回 422 并指明题号</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-04</td><td>同一学生重复提交每次新建记录</td><td><code>Submission.superseded</code> 标记旧版本（保留留痕不物理删除），列表仅一份有效</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-05</td><td>知识点被删后看板无「已失效」标记</td><td><code>KnowledgePointErrorStat.is_active</code>：以图谱能否查到为准；图谱不可用时按活跃处理，避免误标</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-06</td><td>作业无进入 closed 态的入口</td><td>新增 <code>POST /homework/{id}/close</code>（草稿态拒绝、已截止幂等拒绝），截止后拒绝新提交</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-07</td><td>回流重复确认产生重复误区节点</td><td>新增 <code>MistakeFeedback</code> 留痕表（三态 status），以「作业+知识点+表述」为幂等键，命中即直接返回不再写图谱</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EXL-08 / FR-10</td><td>超管可写入他人作业终评</td><td><code>finalize_grade</code> 路由增加：超管且非作业 owner → 403（读取仍放行）</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EVT-01</td><td>埋点 assignment_published 缺失</td><td rowspan="3">新建 <code>app/core/telemetry.py</code>（进程内环形缓冲事件总线，保留最近 500 条），在发布 / 终评 / 回流确认三处上报，含 question_count、ai_confidence、adopted、idempotent 等属性</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EVT-02</td><td>埋点 grading_confirmed 缺失</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>EVT-03</td><td>埋点 mistake_feedback_decided 缺失</td><td><span class="tag t-pass">已修</span></td></tr>
+        <tr><td>测试自洽</td><td>EVT-03 用例依赖其它用例遗留的全局事件</td><td>改为用例内真正执行一次回流确认后再断言，可单独运行通过</td><td><span class="tag t-pass">已修</span></td></tr>
+      </tbody>
+    </table>
+    <h3>改动文件</h3>
+    <ul>
+      <li><strong>后端</strong>：models.py、core/config.py、core/telemetry.py（新增）、api/routes/{homework,grading,curriculum,admin}.py、grading/{ai_grade,service,analytics,backflow}.py、alembic/versions/h4i5j6k7l8m9（新增迁移）</li>
+      <li><strong>前端</strong>：types.ts（ai_unavailable / superseded）、GradingView.vue（AI 不可用告警 + 低置信禁用一键采纳）、HomeworkView.vue（截止按钮）、HomeworkEditView.vue（「已被后续提交覆盖」标签）、api/index.ts（close 接口）</li>
+      <li><strong>测试</strong>：摘除 16 处 <code>@pytest.mark.xfail</code>，更新相关用例说明，EVT-03 改为自洽断言</li>
+    </ul>
+  </div>
+
+  <h2>2. 回归测试</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>层级</th><th>范围</th><th class="num">用例</th><th class="num">通过</th><th class="num">失败</th><th>结果</th></tr></thead>
+      <tbody>
+        <tr><td>L0 单元</td><td>tests/unit</td><td class="num">41</td><td class="num">41</td><td class="num">0</td><td><span class="tag t-pass">通过</span></td></tr>
+        <tr><td>L1 接口</td><td>tests/api（含 l1 与 PRD 符合性）</td><td class="num">182</td><td class="num">182</td><td class="num">0</td><td><span class="tag t-pass">通过（原 16 项 xfail 已转绿）</span></td></tr>
+        <tr><td>L3 AI 评测</td><td>rubric 评分</td><td class="num">1</td><td class="num">1</td><td class="num">0</td><td><span class="tag t-pass">均分 4.6 / 5.0</span></td></tr>
+        <tr><td>其他</td><td>tests/crud、tests/scripts</td><td class="num">12</td><td class="num">12</td><td class="num">0</td><td><span class="tag t-pass">通过</span></td></tr>
+        <tr style="background:#f8f9fb"><td><strong>合计</strong></td><td>pytest 全量</td><td class="num"><strong>236</strong></td><td class="num"><strong>236</strong></td><td class="num"><strong>0</strong></td><td><span class="tag t-pass">全绿</span></td></tr>
+      </tbody>
+    </table>
+    <p class="small" style="margin-bottom:0">覆盖率由 71% 提升至 <strong>72%</strong>（5543 语句）。命令：<code>backend\.venv\Scripts\python.exe -m pytest tests -q</code>。</p>
+  </div>
+
+  <h2>3. 真实环境端到端验证</h2>
+  <div class="card">
+    <p style="margin-top:0">在 Docker 容器（PostgreSQL 15 / Neo4j 5）+ 本机 Python 启动的真实后端上执行，覆盖本轮修复的关键路径：</p>
+    <table>
+      <thead><tr><th style="width:6%">#</th><th>验证点</th><th style="width:22%">实际结果</th><th style="width:8%">判定</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>含标准答案的作业发布</td><td>200</td><td><span class="tag t-pass">OK</span></td></tr>
+        <tr><td>2</td><td>同一学生重复提交两次</td><td>200 / 200</td><td><span class="tag t-pass">OK</span></td></tr>
+        <tr><td>3</td><td>提交记录 2 条、有效 1 条（last-wins）</td><td>2 条 / 有效 1 条</td><td><span class="tag t-pass">OK</span></td></tr>
+        <tr><td>4</td><td>客观题判分与溯源</td><td>200，「学生选 B（3），标准答案 A（2），判定错误，得 0 分」</td><td><span class="tag t-pass">OK</span></td></tr>
+        <tr><td>5</td><td>作业截止</td><td>200 → status=closed</td><td><span class="tag t-pass">OK</span></td></tr>
+        <tr><td>6</td><td>缺标准答案发布被拦截</td><td>422「第 1 题缺少标准答案（选择题需指定正确选项…）」</td><td><span class="tag t-pass">OK</span></td></tr>
+        <tr><td>7</td><td>超管写入他人作业终评</td><td>403（只读视角生效）</td><td><span class="tag t-pass">OK</span></td></tr>
+        <tr><td>8</td><td>截止后再次提交</td><td>400</td><td><span class="tag t-pass">OK</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>4. 前端验证</h2>
+  <div class="card">
+    <ul style="margin-top:0">
+      <li><code>vue-tsc --noEmit</code> → <span class="tag t-pass">0 错误</span>（含本轮新增的 ai_unavailable / superseded / close 相关改动）</li>
+      <li>Element Plus 交互：低置信度或 AI 不可用时「一键采纳」按钮置灰并给出 hover 提示；作业列表新增「截止」按钮（仅已发布态可用，带二次确认）；提交记录对被覆盖的版本打「已被后续提交覆盖」标签</li>
+      <li>构建：此前 <code>vite build</code> 已验证通过（1751 模块）；产物仍有主包 1.25 MB 的体积告警，建议路由级 dynamic import 拆分</li>
+    </ul>
+  </div>
+
+  <h2>5. 性能测试</h2>
+  <div class="card">
+    <p style="margin-top:0">环境：后端本机 uvicorn 单实例 + 容器数据库（PostgreSQL 15 / Neo4j 5），Windows Docker。工具：<code>tests/perf/perf_smoke.py</code>（脚本化并发压测，错误率均为 0%）。</p>
+    <h3>并发 50（每接口 200 次）</h3>
+    <table>
+      <thead><tr><th>场景</th><th>类型</th><th class="num">平均</th><th class="num">P50</th><th class="num">P95</th><th class="num">P99</th><th class="num">TPS</th><th>判定（读≤200 / 写≤500ms）</th></tr></thead>
+      <tbody>
+        <tr style="background:#fdecea"><td>登录获取令牌</td><td>写</td><td class="num">3313.7</td><td class="num">3369.5</td><td class="num">4401.0</td><td class="num">5268.6</td><td class="num">13.6</td><td><span class="tag t-fail">超标 8.8×</span></td></tr>
+        <tr><td>读取当前用户</td><td>读</td><td class="num">227.9</td><td class="num">236.8</td><td class="num">298.6</td><td class="num">344.3</td><td class="num">160.1</td><td><span class="tag t-fail">超标</span></td></tr>
+        <tr><td>教案列表</td><td>读</td><td class="num">226.5</td><td class="num">236.6</td><td class="num">299.2</td><td class="num">330.8</td><td class="num">164.7</td><td><span class="tag t-fail">超标</span></td></tr>
+        <tr><td>作业列表</td><td>读</td><td class="num">471.6</td><td class="num">490.2</td><td class="num">592.6</td><td class="num">768.6</td><td class="num">86.8</td><td><span class="tag t-fail">超标</span></td></tr>
+        <tr style="background:#fdf3e3"><td>知识点列表</td><td>读</td><td class="num">583.9</td><td class="num">479.7</td><td class="num">1106.7</td><td class="num">1172.3</td><td class="num">74.2</td><td><span class="tag t-fail">超标 5.5×（最差）</span></td></tr>
+        <tr><td>学科列表</td><td>读</td><td class="num">255.9</td><td class="num">242.4</td><td class="num">391.8</td><td class="num">411.9</td><td class="num">149.8</td><td><span class="tag t-fail">超标</span></td></tr>
+        <tr><td>提醒-课程表</td><td>读</td><td class="num">212.2</td><td class="num">217.9</td><td class="num">291.1</td><td class="num">301.3</td><td class="num">175.0</td><td><span class="tag t-fail">超标</span></td></tr>
+      </tbody>
+    </table>
+    <h3>并发 10（每接口 60 次，对照组）</h3>
+    <table>
+      <thead><tr><th>场景</th><th class="num">P50</th><th class="num">P95</th><th class="num">TPS</th><th>判定</th></tr></thead>
+      <tbody>
+        <tr><td>读取当前用户</td><td class="num">42.1</td><td class="num">91.6</td><td class="num">133.0</td><td><span class="tag t-pass">达标</span></td></tr>
+        <tr><td>教案列表</td><td class="num">39.5</td><td class="num">83.3</td><td class="num">135.2</td><td><span class="tag t-pass">达标</span></td></tr>
+        <tr><td>作业列表</td><td class="num">78.3</td><td class="num">113.6</td><td class="num">95.6</td><td><span class="tag t-pass">达标</span></td></tr>
+        <tr><td>知识点列表</td><td class="num">58.3</td><td class="num">86.0</td><td class="num">119.1</td><td><span class="tag t-pass">达标</span></td></tr>
+        <tr><td>学科列表</td><td class="num">37.5</td><td class="num">83.3</td><td class="num">152.7</td><td><span class="tag t-pass">达标</span></td></tr>
+        <tr><td>提醒-课程表</td><td class="num">36.1</td><td class="num">77.0</td><td class="num">146.4</td><td><span class="tag t-pass">达标</span></td></tr>
+        <tr style="background:#fdecea"><td>登录获取令牌</td><td class="num">618.8</td><td class="num">745.1</td><td class="num">15.0</td><td><span class="tag t-fail">仍超标</span></td></tr>
+      </tbody>
+    </table>
+    <h3>解读</h3>
+    <ul>
+      <li><strong>登录是真实瓶颈</strong>：并发降到 10、无排队时 P50 仍有 619ms，说明慢在请求本身而非并发——密码哈希（pwdlib argon2/bcrypt）为 CPU 密集且刻意昂贵，50 并发下 CPU 打满后恶化到 4.4s。建议：调低 argon2 参数或改用 bcrypt 低成本档；登录接口单独限流；把令牌校验（<code>/login/test-token</code>）与登录分离以减轻热点。</li>
+      <li><strong>读接口是容量问题</strong>：并发 10 时 P95 仅 77~114ms，并发 50 时普遍涨到 300~1100ms，TPS 从 ~150 掉到 74~175（排队主导）。建议：uvicorn 多 worker、数据库连接池调大、作业列表的知识点解析做批量化/缓存。</li>
+      <li><strong>知识点列表最差</strong>（并发 50 P95 1107ms）：走 Neo4j 查询，建议为常用查询建索引并加缓存。</li>
+      <li>所有场景错误率均为 0%，无功能失败，问题集中在延迟。</li>
+    </ul>
+  </div>
+
+  <h2>6. 遗留问题与后续建议</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th style="width:20%">问题</th><th>说明</th><th style="width:10%">优先级</th></tr></thead>
+      <tbody>
+        <tr style="background:#fdecea"><td>Alembic 迁移失败</td><td><code>alembic upgrade head</code> 在 <code>f2b3c4d5e6a7</code> 创建 <code>homework</code> 表时报 SQLAlchemy f405（表创建被拒），本次 QA 用 <code>SQLModel.metadata.create_all</code> 绕过才建起 27 张表。<strong>部署到全新库时会卡住</strong>，需排查（重点看 homeworkstatus 枚举类型与依赖表的创建顺序）</td><td><span class="tag t-fail">P0</span></td></tr>
+        <tr style="background:#fdecea"><td>登录性能</td><td>并发 10 时 P95 745ms，仍超 500ms 阈值；并发 50 时 4.4s</td><td><span class="tag t-fail">P0</span></td></tr>
+        <tr><td>JMeter 脚本不可用</td><td>8 个 <code>.jmx</code> 与本机 JMeter 5.6.3 的 xstream 不兼容（HeaderManager、HTTPSamplerProxy 反序列化失败，已尝试修正 Header 写法仍不通）。建议用 JMeter GUI 重新录制导出，或沿用本次新增的 <code>tests/perf/perf_smoke.py</code></td><td><span class="tag t-warn">P1</span></td></tr>
+        <tr><td>并发容量</td><td>单实例下并发 50 读接口 P95 300~1100ms，需多 worker / 连接池 / 缓存</td><td><span class="tag t-warn">P1</span></td></tr>
+        <tr><td>静态检查</td><td>ruff 仍有约 230 项告警（ARG001 70、import 排序 40、遗留 print 24 等），其中 <code>app/seed_demo.py</code> 的 3 处 <code>KnowledgeGraphRepository</code> 未定义引用和 <code>initial_data.py</code> 的 B023 建议一并修掉</td><td><span class="tag t-info">P2</span></td></tr>
+        <tr><td>覆盖率洼地</td><td>AI 编排图 10%~32%、知识图谱仓储 25%、文件解析 21%、seed_demo/initial_data 0%；建议补桩驱动的单元测试</td><td><span class="tag t-info">P2</span></td></tr>
+        <tr><td>runner 口径</td><td>平台 runner 把 xfail 计入「未通过」拉低通过率，但套件状态仍判 pass，两者不一致（本轮已无 xfail，问题暂时不可见，仍建议修正统计口径）</td><td><span class="tag t-info">P2</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    环境：Windows / Python 3.13（backend/.venv）/ Node 22.22.2 / Docker Desktop（postgres:15-alpine、neo4j:5 容器）/ Java 17 + JMeter 5.6.3。<br>
+    复现命令：<code>backend\.venv\Scripts\python.exe -m pytest tests -q</code>；
+    性能：<code>backend\.venv\Scripts\python.exe tests\perf\perf_smoke.py --concurrency 50 --total 200</code>；
+    平台报告：<code>backend\.venv\Scripts\python.exe tests\platform\runner.py --scope all --no-jmeter</code>。<br>
+    本次新增文件：<code>app/core/telemetry.py</code>、<code>alembic/versions/h4i5j6k7l8m9_*.py</code>、<code>tests/perf/perf_smoke.py</code>、<code>docs/qa-report.html</code>。
+  </div>
+
+</div>
+</body>
+</html>

@@ -7,11 +7,11 @@
       </div>
       <el-menu
         :default-active="activeMenu"
-        router
         class="menu"
         background-color="#1f2430"
         text-color="#a3a8b8"
         active-text-color="#ffffff"
+        @select="handleMenuSelect"
       >
         <!-- 教师端菜单 -->
         <template v-if="!auth.user?.is_superuser">
@@ -27,6 +27,14 @@
             <el-icon><Notebook /></el-icon>
             <span>我的教案</span>
           </el-menu-item>
+          <el-menu-item index="/homework">
+            <el-icon><EditPen /></el-icon>
+            <span>作业管理</span>
+          </el-menu-item>
+          <el-menu-item index="smart-grading">
+            <el-icon><Checked /></el-icon>
+            <span>智能批改</span>
+          </el-menu-item>
           <el-menu-item index="/documents">
             <el-icon><Folder /></el-icon>
             <span>我的素材库</span>
@@ -34,6 +42,10 @@
           <el-menu-item index="/ppt">
             <el-icon><Film /></el-icon>
             <span>PPT 生成</span>
+          </el-menu-item>
+          <el-menu-item index="/my-suggestions">
+            <el-icon><Promotion /></el-icon>
+            <span>我的共建</span>
           </el-menu-item>
           <el-menu-item index="/settings">
             <el-icon><Setting /></el-icon>
@@ -96,14 +108,45 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import { useRoute, useRouter } from "vue-router"
-import { ElMessageBox } from "element-plus"
+import { ElMessageBox, ElMessage } from "element-plus"
 import { useAuthStore } from "@/stores/auth"
+import { homeworkApi } from "@/api"
+import type { Homework } from "@/types"
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const activeMenu = computed(() => route.path)
+// 作业区（列表/编辑/批改/看板）统一高亮「作业管理」
+const activeMenu = computed(() => {
+  if (route.path.startsWith("/homework")) return "/homework"
+  return route.path
+})
+
+async function handleMenuSelect(index: string) {
+  if (index === "smart-grading") {
+    await goSmartGrading()
+    return
+  }
+  router.push(index)
+}
+
+// 「智能批改」快捷入口：自动定位到最近一个已发布作业的批改页
+async function goSmartGrading() {
+  try {
+    const { data } = await homeworkApi.list({ limit: 100 })
+    const items: Homework[] = data.data ?? []
+    const target = items.find((h) => h.status === "published")
+    if (target) {
+      router.push(`/homework/${target.id}/grading`)
+      return
+    }
+    ElMessage.info("还没有已发布的作业，请先到「作业管理」发布作业")
+    router.push("/homework")
+  } catch {
+    router.push("/homework")
+  }
+}
 
 async function handleCommand(cmd: string) {
   if (cmd === "logout") {

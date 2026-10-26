@@ -6,26 +6,41 @@ import type {
   AdminStatsData,
   AiGenerateRequest,
   AiGenerateResponse,
+  BackflowConfirmRequest,
   CandidateCreate,
   CandidateKp,
   CandidatesPublic,
   DocumentItem,
   DocumentsPublic,
+  ErrorDashboard,
   ExtractionLogsPublic,
   ExtractionResult,
   GraphData,
+  FinalizeGradeRequest,
+  GradeTriggerResponse,
+  Homework,
+  HomeworkUpdatePayload,
+  HomeworksPublic,
   KnowledgePoint,
   KnowledgePointsPublic,
   KnowledgeRelation,
+  LabeledSetReport,
   LessonPlan,
   LessonPlansPublic,
   Message,
+  MisconceptionOut,
+  MisconceptionSuggestions,
   PptRecord,
   PptRecordsPublic,
+  QuestionGrade,
   Schedule,
+  SimulateSubmitRequest,
   SlideContent,
   Subject,
   SubjectDashboard,
+  Submission,
+  SubmissionGradesPublic,
+  SubmissionsPublic,
   SummarizeResult,
   TaskItem,
   Textbook,
@@ -181,6 +196,82 @@ export const lessonPlansApi = {
   exportUrl: (id: string) => `/api/v1/lesson-plans/${id}/export`,
 }
 
+// ==================== 作业 / 提交 ====================
+
+export const homeworkApi = {
+  list: (params?: { skip?: number; limit?: number }) =>
+    client.get<HomeworksPublic>("/homework/", { params }),
+  get: (id: string) => client.get<Homework>(`/homework/${id}`),
+  // FR-01：从教案一键生成作业（课堂习题为初始题目 + 继承知识点）
+  generateFromLessonPlan: (lessonPlanId: string, title?: string) =>
+    client.post<Homework>(`/homework/generate-from/${lessonPlanId}`, { title: title ?? null }),
+  // FR-02：编辑作业（增删改题目 / 知识点）
+  update: (id: string, data: HomeworkUpdatePayload) =>
+    client.put<Homework>(`/homework/${id}`, data),
+  // FR-02：提交（发布）时校验每题知识点
+  publish: (id: string) => client.post<Homework>(`/homework/${id}/publish`),
+  // FR-03：模拟提交 / 教师代录
+  simulateSubmit: (id: string, data: SimulateSubmitRequest) =>
+    client.post<Submission>(`/homework/${id}/simulate-submit`, data),
+  submissions: (id: string) => client.get<SubmissionsPublic>(`/homework/${id}/submissions`),
+  // PRD §4 / §9 R-3：使作业进入「已截止」状态
+  close: (id: string) => client.post<Homework>(`/homework/${id}/close`),
+}
+
+// ==================== 智能判分（FR-04/05/06） ====================
+
+export const gradingApi = {
+  // FR-04/05：触发自动判分（客观题规则判、主观题出 AI 建议）
+  grade: (homeworkId: string, submissionId: string) =>
+    client.post<GradeTriggerResponse>(
+      `/grading/homework/${homeworkId}/submissions/${submissionId}/grade`,
+    ),
+  // 查询判分结果（含溯源 / AI 建议 / 终评）
+  grades: (homeworkId: string, submissionId: string) =>
+    client.get<SubmissionGradesPublic>(
+      `/grading/homework/${homeworkId}/submissions/${submissionId}/grades`,
+    ),
+  // FR-06：教师终评（采纳建议或手动改分 + 二次确认，不可逆）
+  finalize: (
+    homeworkId: string,
+    submissionId: string,
+    questionId: string,
+    data: FinalizeGradeRequest,
+  ) =>
+    client.post<QuestionGrade>(
+      `/grading/homework/${homeworkId}/submissions/${submissionId}/grades/${questionId}/finalize`,
+      data,
+    ),
+  // FR-04：标注集验收（准确率 ≥95%）
+  verifyLabeledSet: () => client.post<LabeledSetReport>("/grading/verify-labeled-set"),
+}
+
+// ==================== 学情看板 / 误区回流 / 脱敏导出（FR-07/08/09） ====================
+
+export const analyticsApi = {
+  // FR-07 错误聚合看板：scope=class（班级）/ personal（个人，需 submission_id）
+  dashboard: (homeworkId: string, params?: { scope?: string; submission_id?: string }) =>
+    client.get<ErrorDashboard>(`/analytics/homework/${homeworkId}/dashboard`, { params }),
+  // FR-08 误区回流建议（threshold 可选，缺省 40%）
+  suggestions: (homeworkId: string, threshold?: number) =>
+    client.get<MisconceptionSuggestions>(
+      `/analytics/homework/${homeworkId}/misconception-suggestions`,
+      { params: threshold === undefined ? undefined : { threshold } },
+    ),
+  // FR-08 教师确认回流 → 写入图谱误区（来源「教学回流」）
+  confirmBackflow: (homeworkId: string, data: BackflowConfirmRequest) =>
+    client.post<MisconceptionOut>(
+      `/analytics/homework/${homeworkId}/misconception-backflow`,
+      data,
+    ),
+  // FR-09 脱敏导出 URL（走 authorizedFetch 下载，带 token）
+  exportUrl: (homeworkId: string, format: "xlsx" | "pdf", scope = "class", submissionId?: string) => {
+    const q = new URLSearchParams({ format, scope })
+    if (submissionId) q.append("submission_id", submissionId)
+    return `/api/v1/analytics/homework/${homeworkId}/export?${q.toString()}`
+  },
+}
+
 // ==================== 概括 / PPT ====================
 
 export const summarizeApi = {
@@ -201,6 +292,13 @@ export const summarizeApi = {
       headers: { "Content-Type": "multipart/form-data" },
     })
   },
+  // 文本直接生成 PPT（如教案内容），无需上传文件
+  generatePptFromText: (title: string, text: string, style: string, slide_count: number) =>
+    client.post<Blob>(
+      "/summarize/generate-ppt-from-text",
+      { title, text, style, slide_count },
+      { responseType: "blob" },
+    ),
   pptList: () => client.get<PptRecordsPublic>("/summarize/ppt-list"),
   savePpt: (id: string, slides: SlideContent[], style: string) =>
     client.put<Blob>(`/summarize/ppt/${id}/save`, { slides, style }, { responseType: "blob" }),
@@ -301,6 +399,9 @@ export const adminApi = {
   // 教师共建建议工单（knowledge_suggestion 表）
   suggestions: (params?: { status?: string; skip?: number; limit?: number }) =>
     client.get<{ data: CandidateKp[]; count: number }>("/admin/suggestions", { params }),
+  // 教师端：查看自己提交的共建建议工单（回推闭环）
+  suggestionsMine: (params?: { status?: string; skip?: number; limit?: number }) =>
+    client.get<{ data: CandidateKp[]; count: number }>("/admin/suggestions/mine", { params }),
   submitSuggestion: (data: {
     kind: string
     name: string
@@ -314,8 +415,8 @@ export const adminApi = {
   }) => client.post("/admin/suggestions", data),
   approveSuggestion: (id: string) =>
     client.post<{ message: string }>(`/admin/suggestions/${id}/approve`),
-  rejectSuggestion: (id: string) =>
-    client.post<{ message: string }>(`/admin/suggestions/${id}/reject`),
+  rejectSuggestion: (id: string, reviewNote?: string | null) =>
+    client.post<{ message: string; review_note?: string | null }>(`/admin/suggestions/${id}/reject`, { review_note: reviewNote ?? null }),
   // 图谱质量检测
   graphQuality: () =>
     client.get<{

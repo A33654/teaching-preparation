@@ -6,7 +6,7 @@
       type="warning"
       :closable="false"
       show-icon
-      title="当前章节知识库尚不完整，生成教案将启用 RAG 兜底"
+      title="当前章节知识库尚不完整，生成教案将启用教材关键词补充检索兜底"
     />
 
     <div class="hero">

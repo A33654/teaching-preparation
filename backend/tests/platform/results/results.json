@@ -1,0 +1,108 @@
+{
+  "generated_at": "2026-10-26 20:06:49",
+  "environment": {
+    "host": "127.0.0.1",
+    "port": 18000,
+    "mock_external": true,
+    "backend_dir": "E:\\work\\tty-main\\tty-main\\backend"
+  },
+  "thresholds": {
+    "env": {
+      "host": "127.0.0.1",
+      "port": 18000,
+      "api_prefix": "/api/v1",
+      "mock_external": true,
+      "sqlite_path": ":memory:",
+      "jmeter_bin": "jmeter",
+      "results_dir": "tests/platform/results"
+    },
+    "functional": {
+      "pass_rate_min": 95.0,
+      "max_open_critical": 0,
+      "auth_semantics_ok": true,
+      "idempotency_required": true
+    },
+    "performance": {
+      "read_p95_ms": 200,
+      "write_p95_ms": 500,
+      "read_error_rate": 0.1,
+      "write_error_rate": 0.5,
+      "ai_p95_ms": 30000,
+      "ai_error_rate": 1.0,
+      "stress_error_rate_max": 5.0,
+      "endurance_drift_pct": 10.0
+    },
+    "ai_eval": {
+      "rubric_avg_min": 4.0,
+      "kp_coverage_min": 90.0,
+      "exam_coverage_min": 85.0,
+      "max_prereq_breaks": 0,
+      "sse_complete_rate": 100.0,
+      "fallback_required": true
+    }
+  },
+  "suites": {
+    "performance": {
+      "status": "partial",
+      "scenarios": [
+        {
+          "name": "01-auth-login",
+          "status": "na",
+          "detail": "无结果文件"
+        },
+        {
+          "name": "02-kp-list-graph",
+          "status": "na",
+          "detail": "无结果文件"
+        },
+        {
+          "name": "03-lesson-plan-crud",
+          "status": "na",
+          "detail": "无结果文件"
+        },
+        {
+          "name": "04-doc-upload",
+          "status": "na",
+          "detail": "无结果文件"
+        },
+        {
+          "name": "05-chat-sse",
+          "status": "na",
+          "detail": "无结果文件"
+        },
+        {
+          "name": "06-admin-batch",
+          "status": "na",
+          "detail": "无结果文件"
+        },
+        {
+          "name": "07-mixed-load",
+          "status": "na",
+          "detail": "无结果文件"
+        },
+        {
+          "name": "08-stress-ramp",
+          "status": "na",
+          "detail": "无结果文件"
+        }
+      ]
+    }
+  },
+  "acceptance": [
+    {
+      "metric": "单元测试通过率",
+      "value": "0.0%",
+      "target": "≥95.0%",
+      "status": "fail",
+      "note": "通过 0/0"
+    },
+    {
+      "metric": "接口功能通过率",
+      "value": "0.0%",
+      "target": "≥95.0%",
+      "status": "fail",
+      "note": "通过 0/0"
+    }
+  ],
+  "overall_status": "partial"
+}

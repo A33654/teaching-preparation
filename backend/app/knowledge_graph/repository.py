@@ -51,6 +51,7 @@ def _node_to_dict(node: Any) -> dict:
         "difficulty": props.get("difficulty", 1),
         "is_key_point": bool(props.get("is_key_point", False)),
         "owner_id": str(props.get("owner_id", "")),
+        "org_id": str(props.get("org_id", "")) if props.get("org_id") is not None else None,
         "created_at": props.get("created_at"),
     }
 
@@ -73,6 +74,8 @@ def _mis_to_dict(node: Any) -> dict:
         "id": str(props.get("id", "")),
         "content": props.get("content", ""),
         "correction": props.get("correction", ""),
+        # 来源：教学回流（FR-08 教师确认回流）/ 人工维护 / LLM 抽取
+        "source": props.get("source", "manual"),
     }
 
 
@@ -113,15 +116,16 @@ class KnowledgeGraphRepository:
         grade_level: str | None = None,
         difficulty: int = 1,
         is_key_point: bool = False,
+        org_id: str | None = None,
     ) -> dict:
-        """创建知识点节点"""
+        """创建知识点节点（org_id 用于多租户隔离）"""
         kp_id = str(uuid.uuid4())
         result = self._run(
             """
             CREATE (kp:KnowledgePoint {
                 id: $id, name: $name, subject: $subject, description: $description,
                 grade_level: $grade_level, difficulty: $difficulty,
-                is_key_point: $is_key_point, owner_id: $owner_id, created_at: $created_at
+                is_key_point: $is_key_point, owner_id: $owner_id, org_id: $org_id, created_at: $created_at
             })
             RETURN kp
             """,
@@ -133,9 +137,67 @@ class KnowledgeGraphRepository:
             difficulty=difficulty,
             is_key_point=is_key_point,
             owner_id=owner_id,
+            org_id=org_id,
             created_at=_now(),
         )
         return _node_to_dict(result[0]["kp"])
+
+    def create_knowledge_item(
+        self,
+        *,
+        org_id: str,
+        owner_id: str,
+        name: str,
+        subject: str = "通用",
+        description: str = "",
+        grade_level: str | None = None,
+        snapshot_id: str | None = None,
+        source: str = "lesson_plan",
+    ) -> dict:
+        """创建知识库条目（引用教案版本快照，不直接复制正文）。
+
+        与知识点同类型节点，但带 source/org_id/snapshot_id，便于按组织隔离与引用统计。
+        """
+        kp_id = str(uuid.uuid4())
+        result = self._run(
+            """
+            CREATE (kp:KnowledgePoint {
+                id: $id, name: $name, subject: $subject, description: $description,
+                grade_level: $grade_level, owner_id: $owner_id, org_id: $org_id,
+                source: $source, snapshot_id: $snapshot_id,
+                reference_count: 0, created_at: $created_at
+            })
+            RETURN kp
+            """,
+            id=kp_id,
+            name=name,
+            subject=subject,
+            description=description,
+            grade_level=grade_level,
+            owner_id=owner_id,
+            org_id=org_id,
+            source=source,
+            snapshot_id=snapshot_id,
+            created_at=_now(),
+        )
+        return _node_to_dict(result[0]["kp"])
+
+    def ensure_org_tag(self, org_id: str) -> int:
+        """一次性给历史遗留（org_id 为空）的节点补打组织标签（幂等）。
+
+        迁移期使用：把存量全局知识点归入指定组织，保证按 org 过滤后仍能命中。
+        """
+        result = self._run(
+            "MATCH (kp:KnowledgePoint) WHERE kp.org_id IS NULL SET kp.org_id = $org_id RETURN count(kp) AS n",
+            org_id=org_id,
+        )
+        return int(result[0]["n"]) if result else 0
+
+    def increment_reference_count(self, kp_id: str) -> None:
+        self._run(
+            "MATCH (kp:KnowledgePoint {id: $kp_id}) SET kp.reference_count = coalesce(kp.reference_count, 0) + 1 RETURN kp",
+            kp_id=kp_id,
+        )
 
     def update_knowledge_point(self, kp_id: str, **fields: Any) -> dict | None:
         """更新知识点属性（仅更新传入的字段）"""
@@ -189,16 +251,20 @@ class KnowledgeGraphRepository:
         self,
         *,
         owner_id: str | None = None,
+        org_id: str | None = None,
         skip: int = 0,
         limit: int = 100,
         subject: str | None = None,
         grade_level: str | None = None,
         search: str | None = None,
     ) -> tuple[list[dict], int]:
-        """列出知识点，支持按所有者/学科/学段/名称筛选"""
+        """列出知识点，支持按组织/所有者/学科/学段/名称筛选"""
         where = ["(kp.status IS NULL OR kp.status = 'published')"]
         params: dict[str, Any] = {"skip": skip, "limit": limit}
-        if owner_id is not None:
+        if org_id is not None:
+            where.append("kp.org_id = $org_id")
+            params["org_id"] = org_id
+        elif owner_id is not None:
             where.append("kp.owner_id = $owner_id")
             params["owner_id"] = owner_id
         if subject:
@@ -228,20 +294,22 @@ class KnowledgeGraphRepository:
         )
         return [_node_to_dict(r["kp"]) for r in result], count_result[0]["n"]
 
-    def find_by_name(self, name: str, owner_id: str | None) -> dict | None:
-        """按名称精确查找（提取/审核去重用）。
+    def find_by_name(self, name: str, owner_id: str | None = None, org_id: str | None = None) -> dict | None:
+        """按名称精确查找（提取/审核去重）。
 
-        owner_id=None 时全局查找——知识库为全局共享图谱，
-        审核写图与批量导入必须全局按名去重，避免同名节点重复。
+        优先按 org_id 在本组织内去重；org_id 为空时退化为按 owner_id 全局查找。
+        知识库已按组织隔离，审核写图应在本组织内去重，避免同名节点重复。
         """
         result = self._run(
             """
             MATCH (kp:KnowledgePoint {name: $name})
-            WHERE $owner_id IS NULL OR kp.owner_id = $owner_id
+            WHERE ($org_id IS NULL OR kp.org_id = $org_id)
+              AND ($owner_id IS NULL OR kp.owner_id = $owner_id)
             RETURN kp LIMIT 1
             """,
             name=name,
             owner_id=owner_id,
+            org_id=org_id,
         )
         return _node_to_dict(result[0]["kp"]) if result else None
 
@@ -347,20 +415,24 @@ class KnowledgeGraphRepository:
 
     # ==================== 图查询 ====================
 
-    def get_full_graph(self, owner_id: str | None = None) -> dict:
-        """获取全图：所有知识点节点及其关系（纯 Cypher）"""
+    def get_full_graph(self, owner_id: str | None = None, org_id: str | None = None) -> dict:
+        """获取全图：所有知识点节点及其关系（纯 Cypher，按组织隔离）"""
         params: dict[str, Any] = {}
-        owner_filter = "1 = 1"
-        if owner_id is not None:
-            owner_filter = "kp.owner_id = $owner_id"
+        if org_id is not None:
+            node_filter = "kp.org_id = $org_id"
+            params["org_id"] = org_id
+        elif owner_id is not None:
+            node_filter = "kp.owner_id = $owner_id"
             params["owner_id"] = owner_id
+        else:
+            node_filter = "1 = 1"
         node_result = self._run(
-            f"MATCH (kp:KnowledgePoint) WHERE {owner_filter} RETURN kp", **params
+            f"MATCH (kp:KnowledgePoint) WHERE {node_filter} RETURN kp", **params
         )
         rel_result = self._run(
             f"""
             MATCH (a:KnowledgePoint)-[r]->(b:KnowledgePoint)
-            WHERE {owner_filter.replace('kp', 'a')}
+            WHERE {node_filter.replace('kp', 'a')}
             RETURN r, a.id AS src, b.id AS dst
             """,
             **params,
@@ -412,15 +484,15 @@ class KnowledgeGraphRepository:
         ]
         return {"nodes": nodes, "edges": edges}
 
-    def search_knowledge_points(self, query: str, owner_id: str | None, top_k: int = 10) -> list[dict]:
+    def search_knowledge_points(self, query: str, owner_id: str | None = None, org_id: str | None = None, top_k: int = 10) -> list[dict]:
         """分词打分检索（名称命中权重高于描述命中），供 Agent 工具与兜底检索复用。
 
-        强制过滤 status：只返回已发布（published）的知识点，
-        未审核数据不会进入任何备课查询。兼容存量节点（无 status 视为已发布）。
+        组织隔离：org_id 非空时仅返回本组织知识点；否则退化为按 owner_id 过滤。
+        强制过滤 status：只返回已发布（published）的知识点。
         """
         tokens = [
             t.strip()
-            for t in re.split(r"[\s,，。、;；:：!！?？()（）【】\[\]\"']+", query)
+            for t in re.split(r"[\s,，。、;；:：!！?？()（）【】\[\]\"'`·《》「」『』“”‘’]+", query)
             if len(t.strip()) >= 2
         ][:8]
         if not tokens:
@@ -428,7 +500,8 @@ class KnowledgeGraphRepository:
         result = self._run(
             """
             MATCH (kp:KnowledgePoint)
-            WHERE ($owner_id IS NULL OR kp.owner_id = $owner_id)
+            WHERE ($org_id IS NULL OR kp.org_id = $org_id)
+              AND ($owner_id IS NULL OR kp.owner_id = $owner_id)
               AND (kp.status IS NULL OR kp.status = 'published')
             WITH kp,
                  reduce(s = 0, t IN $tokens |
@@ -443,6 +516,7 @@ class KnowledgeGraphRepository:
             """,
             tokens=tokens,
             owner_id=owner_id,
+            org_id=org_id,
             top_k=top_k,
         )
         return [_node_to_dict(r["kp"]) for r in result]
@@ -470,15 +544,22 @@ class KnowledgeGraphRepository:
             )
         return int(result[0]["n"]) if result else 0
 
-    def count_knowledge_points(self, owner_id: str | None) -> int:
-        """统计知识点数量（强制触发兜底的校验规则用）"""
-        params: dict[str, Any] = {"owner_id": owner_id}
-        owner_filter = "kp.owner_id = $owner_id" if owner_id is not None else "1 = 1"
+    def count_knowledge_points(self, owner_id: str | None = None, org_id: str | None = None) -> int:
+        """统计知识点数量（按组织隔离）"""
+        params: dict[str, Any] = {}
+        if org_id is not None:
+            owner_filter = "kp.org_id = $org_id"
+            params["org_id"] = org_id
+        elif owner_id is not None:
+            owner_filter = "kp.owner_id = $owner_id"
+            params["owner_id"] = owner_id
+        else:
+            owner_filter = "1 = 1"
         result = self._run(
             f"MATCH (kp:KnowledgePoint) WHERE {owner_filter} RETURN count(kp) AS n",
             **params,
         )
-        return result[0]["n"]
+        return result[0]["n"] if result else 0
 
     def list_knowledge_point_names(self, owner_id: str | None, limit: int = 500) -> list[str]:
         """列出知识点名称（供查询词提取时做已有名称匹配）"""
@@ -664,13 +745,20 @@ class KnowledgeGraphRepository:
         owner_id: str,
         content: str,
         correction: str = "",
+        source: str = "manual",
+        reviewed_by: str | None = None,
     ) -> dict:
-        """创建误区实体（学生常见错误概念 / 易错点）"""
+        """创建误区实体（学生常见错误概念 / 易错点）
+
+        source 取值：manual（人工维护）/ teaching_backflow（FR-08 教学回流，
+        由教师确认错误回流生成，表示为已审核记录）。
+        """
         mis_id = str(uuid.uuid4())
         result = self._run(
             """
             CREATE (m:Misconception {
                 id: $id, content: $content, correction: $correction,
+                source: $source, reviewed_by: $reviewed_by,
                 owner_id: $owner_id, created_at: $created_at
             })
             RETURN m
@@ -678,6 +766,8 @@ class KnowledgeGraphRepository:
             id=mis_id,
             content=content,
             correction=correction,
+            source=source,
+            reviewed_by=reviewed_by,
             owner_id=owner_id,
             created_at=_now(),
         )

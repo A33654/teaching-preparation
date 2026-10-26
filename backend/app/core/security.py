@@ -8,9 +8,14 @@ from pwdlib.hashers.bcrypt import BcryptHasher
 
 from app.core.config import settings
 
+# P02：Argon2id 成本参数由 settings 下发，便于按环境调整而无需改代码。
+# 已存的哈希自带参数，下调成本不会让老密码失效（校验仍按原参数进行）。
 password_hash = PasswordHash(
     (
-        Argon2Hasher(),
+        Argon2Hasher(
+            time_cost=settings.ARGON2_TIME_COST,
+            memory_cost=settings.ARGON2_MEMORY_COST,
+        ),
         BcryptHasher(),
     )
 )

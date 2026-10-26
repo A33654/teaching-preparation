@@ -118,6 +118,7 @@ export interface LessonPlan {
   created_at?: string | null
   knowledge_point_ids: string[]
   knowledge_points: KnowledgePoint[]
+  classroom_exercises?: ClassroomExercise[]
   verification_report?: {
     missing_kps: string[]
     missing_exam_points: string[]
@@ -161,6 +162,217 @@ export interface SummarizeResult {
   summary: string
   key_topics: string[]
   suggested_approach: string
+}
+
+// ==================== 作业 / 提交 ====================
+
+export type QuestionType = "choice" | "fill" | "short" | "essay"
+export type HomeworkStatus = "draft" | "published" | "closed"
+export type SubmissionStatus = "submitted" | "graded"
+
+/** 教案课堂习题（一键生成作业的初始题目来源） */
+export interface ClassroomExercise {
+  id: string
+  type: QuestionType
+  stem: string
+  options?: string[]
+  correct_option?: number | null
+  answers?: string[]
+  reference_answer?: string
+}
+
+/** 作业单题：每题必选 ≥1 关联知识点；填空 answers 支持多解 */
+export interface HomeworkQuestion {
+  id: string
+  type: QuestionType
+  stem: string
+  knowledge_point_ids: string[]
+  options: string[]
+  correct_option: number | null
+  answers: string[]
+  reference_answer: string
+  score?: number
+}
+
+export interface Homework {
+  id: string
+  title: string
+  lesson_plan_id?: string | null
+  owner_id: string
+  org_id?: string | null
+  status: HomeworkStatus
+  knowledge_point_ids: string[]
+  knowledge_points: KnowledgePoint[]
+  questions: HomeworkQuestion[]
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface HomeworksPublic {
+  data: Homework[]
+  count: number
+}
+
+export interface HomeworkUpdatePayload {
+  title?: string
+  knowledge_point_ids?: string[]
+  questions?: HomeworkQuestion[]
+}
+
+export interface Submission {
+  id: string
+  homework_id: string
+  student_id_hash: string
+  answers: { question_id: string; content: any }[]
+  status: SubmissionStatus
+  // PRD §7④：True=已被该学生的后续提交覆盖（保留留痕，不物理删除）
+  superseded?: boolean
+  submitted_at?: string | null
+  created_at?: string | null
+}
+
+export interface SubmissionsPublic {
+  data: Submission[]
+  count: number
+}
+
+export interface SimulateSubmitRequest {
+  student_id: string
+  answers: { question_id: string; content: any }[]
+}
+
+// ==================== 判分 / 批改（FR-04/05/06） ====================
+
+export type QuestionGradeStatus = "pending" | "auto_graded" | "finalized"
+
+/** 单题判分记录：客观题自动判分结果 / 主观题 AI 建议 / 教师终评 */
+export interface QuestionGrade {
+  id: string
+  submission_id: string
+  question_id: string
+  question_type: QuestionType
+  full_score: number
+  // 客观题（FR-04）
+  is_correct?: boolean | null
+  auto_score?: number | null
+  auto_detail?: string | null
+  // 主观题 AI 建议（FR-05）
+  ai_suggested_score?: number | null
+  ai_comment?: string | null
+  ai_knowledge_points: string[]
+  ai_confidence?: number | null
+  needs_human: boolean
+  // PRD §7① AI 调用失败时的显式标记（True=AI 不可用，转人工）
+  ai_unavailable?: boolean
+  // 教师终评（FR-06）
+  final_score?: number | null
+  final_comment?: string | null
+  finalized: boolean
+  finalized_at?: string | null
+  status: QuestionGradeStatus
+}
+
+export interface SubmissionGradesPublic {
+  data: QuestionGrade[]
+  count: number
+  submission_status?: string | null
+}
+
+export interface FinalizeGradeRequest {
+  final_score?: number | null
+  final_comment?: string | null
+  adopt_suggestion?: boolean
+  confirm?: boolean
+}
+
+export interface GradeTriggerResponse {
+  submission_id: string
+  graded_count: number
+  grades: QuestionGrade[]
+  message?: string
+}
+
+/** FR-04 标注集验收报告 */
+export interface LabeledSetReport {
+  total: number
+  correct: number
+  accuracy: number
+  threshold: number
+  passed: boolean
+  misjudged: {
+    index: number
+    tag: string
+    question_id: string
+    content: any
+    expected: any
+    got: any
+    detail: string
+  }[]
+}
+
+// ==================== 错误聚合看板（FR-07/08/09） ====================
+
+export type ErrorStatScope = "class" | "personal"
+
+/** 高频错误模式：一种错误表述及其出现次数 */
+export interface ErrorPattern {
+  expression: string
+  count: number
+  question_ids: string[]
+}
+
+/** 单个关联知识点的错误聚合结果 */
+export interface KnowledgePointErrorStat {
+  knowledge_point_id: string
+  knowledge_point_name?: string | null
+  question_count: number
+  graded_count: number
+  wrong_count: number
+  error_rate: number
+  top_patterns: ErrorPattern[]
+}
+
+export interface ErrorDashboard {
+  homework_id: string
+  homework_title?: string
+  scope: ErrorStatScope
+  submission_id?: string | null
+  total_submissions: number
+  graded_submissions: number
+  knowledge_points: KnowledgePointErrorStat[]
+  knowledge_point_total: number
+}
+
+/** FR-08 误区回流建议卡片 */
+export interface MisconceptionSuggestion {
+  knowledge_point_id: string
+  knowledge_point_name?: string | null
+  error_rate: number
+  wrong_count: number
+  graded_count: number
+  threshold: number
+  typical_expressions: string[]
+  suggested_content: string
+  suggested_correction: string
+}
+
+export interface MisconceptionSuggestions {
+  data: MisconceptionSuggestion[]
+  count: number
+  threshold: number
+}
+
+export interface BackflowConfirmRequest {
+  knowledge_point_id: string
+  content: string
+  correction?: string
+}
+
+export interface MisconceptionOut {
+  id: string
+  content: string
+  correction: string
+  source: string
 }
 
 // ==================== AI 助手（SSE） ====================
@@ -298,6 +510,7 @@ export interface CandidateKp {
   kind?: string | null
   target_kp_id?: string | null
   suggestion?: string | null
+  review_note?: string | null
 }
 
 export interface CandidatesPublic {

@@ -35,3 +35,6 @@ frontend/dist/
 # 备份文件
 *.bak
 frontend-react.bak/
+
+# Agent 工作区（含本地记忆/运行态，不入库）
+.workbuddy/

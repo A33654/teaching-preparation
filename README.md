@@ -5,7 +5,8 @@
 ## ✨ 核心亮点
 
 - **知识图谱作为底层推理引擎**：Neo4j 存储知识点/考点/误区三类实体与 7 类关系（前置双向维护、平行、包含），教师端不暴露图结构——章节选择后自动计算输出「本节备课参考」业务清单（教学顺序拓扑排序、重难点、递归前置链、考纲、误区）
-- **LangGraph 固定编排备课流水线**：图谱子图查询 → RAG 教材检索 → LLM 生成初稿 → **规则自检（缺失知识点/未覆盖考纲/遗漏前置/顺序风险）**，一键产出「教案 + 结构化校验报告」
+- **LangGraph 固定编排备课流水线**：图谱子图查询 → 教材关键词补充检索 → LLM 生成初稿 → **规则自检（缺失知识点/未覆盖考纲/遗漏前置/顺序风险）**，一键产出「教案 + 结构化校验报告」
+- **检索说明**：当前补充检索环节为基于教材关键词与分词的命中检索（无向量库），语义向量检索（pgvector + embedding）为规划中的中期演进
 - **增量图谱补全闭环**：文档分块抽取（标题切分+重叠+上下文超限自动降级重试）→ 候选队列 → 管理员批量审核（按工单类型分发写图）→ 教师使用中提交纠错/误区/考点建议工单 → 再审核
 - **工程健壮性**：多 Provider 三级降级（Qwen→DeepSeek→Kimi 启动探测）、SSE 真流式（custom 流 + values 兜底）、图谱质量检测（非法环/孤立节点/核心缺前置）、401/403 语义分离、全局按名去重
 
@@ -62,11 +63,47 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 | 教师 | teacher@example.com | teacher123456 |
 | 管理员 | admin@example.com | admin123456 |
 
+## 🧪 演示前置：先执行灌库
+
+系统已内置**预置示范知识库**，开箱即可演示知识图谱驱动的备课。示范学科为
+**初中物理（人教版八年级上册）**，约 34 个知识点，每个节点都带齐：定义 / 难度(1-5) /
+是否核心考点 / 前置关系(prerequisite) / 1–2 个考纲考点(了解·理解·掌握) / 1–2 个学生误区+纠正；
+并组织出清晰前置链 **光源→光的直线传播→光的反射→光的折射→透镜→凸透镜成像规律→眼睛和眼镜**。
+
+### 灌库方式（二选一，建议结合）
+
+**方式一 · 一键灌库（确定性种子，推荐先跑）**
+
+手工 + LLM 辅助编纂的种子数据（见 `backend/app/seed_demo.py` 的 `DEMO_DATA`，已人工核验），
+经 `backend/app/initial_data.py::seed_knowledge_graph()` 调用 `KnowledgeGraphRepository`
+批量建节点/关系后写入 Neo4j，并写入 PostgreSQL 的学科/教材/章节树/教材切片（供教材关键词补充检索）。
+
+- 自动：后端启动且 `SEED_DEMO_ON_STARTUP=true`（默认）时，若图谱为空会自动灌库；
+- 手动（一键脚本，幂等，可重复执行）：
+
+```bash
+cd backend && python -m scripts.seed_demo
+```
+
+**方式二 · 上传教材 → 自动抽取 → 与种子合并去重**
+
+教师端「素材库」上传教材 PDF/DOCX/TXT，或管理员「知识库管理 → 批量导入教材 PDF」，
+后台 `extraction_graph` 自动抽取知识点/关系 → 进入候选队列（`CandidateKnowledgePoint`）→
+管理员批量审核通过 → 写入 Neo4j。**两条路径共享 `KnowledgeGraphRepository.find_by_name`
+的全局按名去重**，因此抽取结果与方式一的种子会自动合并、不会重复
+（见 `backend/app/api/routes/admin.py::_approve_candidate`：已存在同名知识点则更新而非新建）。
+
+> 演示建议：先跑方式一，备课工作台填「光的反射」/「透镜」即可看到
+> 「知识库完整（图谱驱动）」完整度横幅与前置依赖链；再上传一本教材体验方式二，
+> 到审核队列批量通过，观察新知识点并入同一张图。
+
 ## 🎯 功能模块
 
 **教师端**：工作台（项目卡片+完整度横幅）→ 智能备课工作台（章节驱动 + 本节备课参考只读面板 + 4 类图谱共建建议工单）→ 教案编辑（Markdown 双栏 + 校验报告 + 底部润色助手 + Word 导出）→ 素材库 → PPT 生成（三套风格模板）
 
 **管理端**：统计看板 → 待审核队列（LLM 候选 + 教师建议两源聚合、批量通过/驳回、按类型分发写图）→ 知识库管理（学科/考点/误区维护 + SVG 图谱可视化 + 批量导入教材）→ 系统日志
+
+**教师在线批改模块（与备课闭环衔接）**：作业管理（从教案课堂习题一键生成作业 → 编辑四类题型 → 发布 + 模拟提交）→ 智能批改（客观题规则自动判分、主观题 AI 辅助建议 + 教师确认终评，错判可溯源）→ 错误聚合看板（班级/个人视角、高频错误模式 TOP3、误区回流图谱）→ 脱敏导出（Excel/PDF，学生身份全程哈希）。侧边栏「智能批改」可一键跳到最近已发布作业的批改页。
 
 ## 🗂 目录结构
 
@@ -74,11 +111,12 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 backend/
   app/agent/            # LangGraph 图 + LLM 接入 + 工具（ReAct/备课流水线/抽取/PPT）
   app/knowledge_graph/  # Neo4j 仓储层（纯 Cypher）
-  app/api/routes/       # FastAPI 路由（含 admin 审核队列）
+  app/grading/          # 判分核心：客观题规则判分 / 主观题 AI 建议 / 学情聚合 / 误区回流 / 脱敏导出
+  app/api/routes/       # FastAPI 路由（homework 作业 / grading 批改 / analytics 看板 / admin 审核队列）
   app/alembic/          # 数据库迁移
 frontend/
-  src/views/            # 教师端页面 + admin/ 管理端页面
-  src/api/              # axios 封装 + SSE + authorizedFetch
+  src/views/            # 教师端页面（含 HomeworkView/GradingView/ErrorDashboardView）+ admin/ 管理端页面
+  src/api/              # axios 封装 + SSE + homeworkApi/gradingApi/analyticsApi
 compose.yml             # Docker Compose（端口偏移版，避开本机开发端口）
 scripts/start-neo4j-wsl.sh  # Neo4j 启动 + IP 自动同步
 ```

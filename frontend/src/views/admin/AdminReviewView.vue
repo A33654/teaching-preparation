@@ -261,13 +261,26 @@ async function approve(row: CandidateKp & { origin?: string }) {
 }
 
 async function reject(row: CandidateKp & { origin?: string }) {
+  if (row.origin === "suggestion") {
+    try {
+      const { value } = await ElMessageBox.prompt("请填写驳回理由（将回推教师）：", "驳回建议工单", {
+        type: "warning",
+        inputType: "textarea",
+        confirmButtonText: "确认驳回",
+        cancelButtonText: "取消",
+        inputValidator: (v: string) => (v && v.trim() ? true : "请填写驳回理由"),
+      })
+      await adminApi.rejectSuggestion(row.id, value.trim())
+      ElMessage.success("已驳回并回推理由")
+      load()
+    } catch {
+      // 取消或拦截器已提示
+    }
+    return
+  }
   await ElMessageBox.confirm(`驳回「${row.name}」？`, "确认驳回", { type: "warning" })
   try {
-    if (row.origin === "suggestion") {
-      await adminApi.rejectSuggestion(row.id)
-    } else {
-      await adminApi.rejectCandidate(row.id)
-    }
+    await adminApi.rejectCandidate(row.id)
     ElMessage.success("已驳回")
     load()
   } catch {

@@ -88,8 +88,9 @@ def list_textbooks(session: SessionDep, current_user: CurrentUser, subject_id: s
 
 @router.post("/textbooks", response_model=TextbookPublic)
 def create_textbook(*, session: SessionDep, current_user: CurrentUser, body: TextbookCreate):
+    # subject_id 已是 UUID 类型（非法值由 pydantic 前置拦截为 422），无需再转换
     t = Textbook.model_validate(
-        body, update={"owner_id": current_user.id, "subject_id": uuid.UUID(body.subject_id)}
+        body, update={"owner_id": current_user.id, "subject_id": body.subject_id}
     )
     session.add(t)
     session.commit()

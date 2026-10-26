@@ -87,7 +87,7 @@
             <el-button :icon="Upload">选择文件</el-button>
             <template #tip>
               <div class="upload-tip">
-                上传材料只增强 RAG 检索（教材原文 / 补充讲义），不影响知识图谱主流程；
+                上传材料只增强教材关键词补充检索（教材原文 / 补充讲义），不影响知识图谱主流程；
                 抽取到的知识点自动进入管理员待审核队列
               </div>
             </template>
@@ -218,7 +218,7 @@
           <div v-else-if="chapterContext" class="placeholder">
             <div class="placeholder-icon">🔍</div>
             <div>知识库尚未收录本章节</div>
-            <div class="muted">生成时将自动启用 RAG 兜底，并生成待优化工单提醒管理员补全</div>
+            <div class="muted">生成时将自动启用教材关键词补充检索兜底，并生成待优化工单提醒管理员补全</div>
           </div>
 
           <!-- 图谱共建：教师建议工单入口 -->
@@ -417,8 +417,8 @@ const generating = ref(false)
 const currentStep = ref(0)
 const steps = [
   { title: "正在查询知识图谱", desc: "自动加载本章知识点与知识脉络" },
-  { title: "检测知识库完整度", desc: "评估图谱覆盖度，决定是否启用 RAG 兜底" },
-  { title: "调用 RAG 检索教材素材", desc: "从教材文本库检索章节原文与补充素材" },
+  { title: "检测知识库完整度", desc: "评估图谱覆盖度，决定是否启用教材关键词补充检索兜底" },
+  { title: "调用教材关键词补充检索", desc: "从教材文本库检索章节原文与补充素材" },
   { title: "LLM 生成教案初稿并校验", desc: "固定流水线：生成 → 知识点校验报告" },
 ]
 let stepTimer: ReturnType<typeof setInterval> | null = null

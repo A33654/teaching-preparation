@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pydantic import EmailStr
-from sqlalchemy import DateTime, JSON
+from sqlalchemy import JSON, DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -25,6 +25,204 @@ class DocumentStatus(str, enum.Enum):
     ANALYZING = "analyzing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+# ==================== 多租户 / RBAC 枚举 ====================
+
+class OrgType(str, enum.Enum):
+    SCHOOL = "school"   # 学校租户
+    REGION = "region"   # 区域租户（上级，可包含多所学校）
+
+
+class Visibility(str, enum.Enum):
+    PRIVATE = "private"   # 仅本人
+    GROUP = "group"       # 组内（教研组）
+    SCHOOL = "school"     # 本校
+    REGION = "region"     # 本区域
+    PUBLIC = "public"     # 全平台（跨租户，谨慎使用）
+
+
+class LessonPlanStatus(str, enum.Enum):
+    DRAFT = "draft"         # 草稿（仅本人可改）
+    PENDING = "pending"     # 待审核
+    APPROVED = "approved"   # 已通过
+    REJECTED = "rejected"   # 已驳回
+    ARCHIVED = "archived"   # 已归档
+
+
+class LessonPlanSource(str, enum.Enum):
+    PERSONAL = "个人教案"          # 个人教案
+    COLLECTIVE = "集体备课产出"    # 集体备课产出
+    KNOWLEDGE_BASE = "知识库沉淀"  # 知识库沉淀
+
+
+class ResourceType(str, enum.Enum):
+    LESSON_PLAN = "lesson_plan"
+    TEMPLATE = "template"
+    KNOWLEDGE_ITEM = "knowledge_item"
+
+
+class GranteeType(str, enum.Enum):
+    USER = "user"
+    GROUP = "group"
+    SCHOOL = "school"
+    REGION = "region"
+
+
+class AclPermission(str, enum.Enum):
+    VIEW = "view"
+    EDIT = "edit"
+
+
+class ReviewAction(str, enum.Enum):
+    SUBMIT = "submit"
+    APPROVE = "approve"
+    REJECT = "reject"
+    RESUBMIT = "resubmit"
+    ARCHIVE = "archive"
+    PUBLISH_KB = "publish_kb"
+
+
+class ContributionType(str, enum.Enum):
+    CREATE = "create"
+    SUBMIT = "submit"
+    APPROVE = "approve"
+    REFERENCE = "reference"
+    COMMENT = "comment"
+
+
+# ==================== 组织 / 角色 / 权限 ====================
+
+class Organization(SQLModel, table=True):
+    """租户：学校或区域（区域为学校的上级，构成 org 树）"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    name: str = Field(max_length=200, index=True)
+    type: OrgType = Field(default=OrgType.SCHOOL)
+    parent_id: uuid.UUID | None = Field(
+        default=None, foreign_key="organization.id", ondelete="SET NULL"
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class Permission(SQLModel, table=True):
+    """权限点（最小授权单元）"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    code: str = Field(max_length=100, unique=True, index=True)
+    name: str = Field(max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class UserRole(SQLModel, table=True):
+    user_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, primary_key=True, ondelete="CASCADE")
+    role_id: uuid.UUID = Field(foreign_key="role.id", nullable=False, primary_key=True, ondelete="CASCADE")
+
+
+class Role(SQLModel, table=True):
+    """角色 = 一组权限点。MVP：teacher / research_admin（超管临时兼任）"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    code: str = Field(max_length=100, unique=True, index=True)
+    name: str = Field(max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+    org_id: uuid.UUID | None = Field(
+        default=None, foreign_key="organization.id", ondelete="CASCADE"
+    )
+    is_system: bool = Field(default=False)
+    users: list["User"] = Relationship(link_model=UserRole, back_populates="roles")
+
+
+class RolePermission(SQLModel, table=True):
+    role_id: uuid.UUID = Field(foreign_key="role.id", nullable=False, primary_key=True, ondelete="CASCADE")
+    permission_id: uuid.UUID = Field(foreign_key="permission.id", nullable=False, primary_key=True, ondelete="CASCADE")
+
+
+# ==================== 资源共享例外（ACL） ====================
+
+class ResourceAcl(SQLModel, table=True):
+    """资源例外共享：在 visibility 之外，针对特定用户/组/校/区域授予 view/edit"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    org_id: uuid.UUID = Field(foreign_key="organization.id", nullable=False, ondelete="CASCADE")
+    resource_type: ResourceType = Field(default=ResourceType.LESSON_PLAN)
+    resource_id: uuid.UUID = Field(nullable=False, index=True)
+    grantee_type: GranteeType = Field(default=GranteeType.USER)
+    grantee_id: uuid.UUID = Field(nullable=False, index=True)
+    permission: AclPermission = Field(default=AclPermission.VIEW)
+    created_by: uuid.UUID = Field(foreign_key="user.id", nullable=False)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+# ==================== 审核记录 ====================
+
+class ReviewRecord(SQLModel, table=True):
+    """审核/状态流转记录（含驳回原因、可重新提交）"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    org_id: uuid.UUID = Field(foreign_key="organization.id", nullable=False, ondelete="CASCADE")
+    resource_type: ResourceType = Field(default=ResourceType.LESSON_PLAN)
+    resource_id: uuid.UUID = Field(nullable=False, index=True)
+    reviewer_id: uuid.UUID = Field(foreign_key="user.id", nullable=False)
+    action: ReviewAction = Field(default=ReviewAction.SUBMIT)
+    from_status: str | None = Field(default=None, max_length=20)
+    to_status: str | None = Field(default=None, max_length=20)
+    comment: str | None = Field(default=None, max_length=2000)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+# ==================== 贡献事件 ====================
+
+class ContributionEvent(SQLModel, table=True):
+    """共建贡献事件（基于事件聚合周/月进度，防重复计数靠 dedupe_key）"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, index=True, ondelete="CASCADE")
+    org_id: uuid.UUID = Field(foreign_key="organization.id", nullable=False, ondelete="CASCADE")
+    event_type: ContributionType = Field(default=ContributionType.CREATE, index=True)
+    resource_type: ResourceType | None = Field(default=None)
+    resource_id: uuid.UUID | None = Field(default=None, index=True)
+    points: int = Field(default=1)
+    period: str | None = Field(default=None, max_length=20, index=True)  # 如 2026-W43
+    dedupe_key: str | None = Field(default=None, max_length=200, index=True)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+# ==================== 教案模板 ====================
+
+class LessonPlanTemplate(SQLModel, table=True):
+    """可复用教案骨架（按组织沉淀，入知识库的优质案例也可落为模板）"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    org_id: uuid.UUID = Field(foreign_key="organization.id", nullable=False, ondelete="CASCADE", index=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    title: str = Field(min_length=1, max_length=255)
+    subject: str = Field(min_length=1, max_length=100)
+    grade_level: GradeLevel | None = Field(default=None)
+    teaching_objectives: str | None = Field(default=None)
+    teaching_process: str | None = Field(default=None)
+    subject_id: uuid.UUID | None = Field(default=None, foreign_key="subject.id", ondelete="SET NULL")
+    visibility: Visibility = Field(default=Visibility.SCHOOL)
+    status: LessonPlanStatus = Field(default=LessonPlanStatus.APPROVED)
+    source_type: LessonPlanSource = Field(default=LessonPlanSource.KNOWLEDGE_BASE)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+# ==================== 教案版本快照（知识库引用，不复制正文） ====================
+
+class LessonPlanVersionSnapshot(SQLModel, table=True):
+    """教案审核通过/入知识库时的冻结快照，知识库条目只引用它，不直接存正文"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    lesson_plan_id: uuid.UUID = Field(foreign_key="lessonplan.id", nullable=False, index=True, ondelete="CASCADE")
+    org_id: uuid.UUID = Field(foreign_key="organization.id", nullable=False, ondelete="CASCADE")
+    version: int = Field(default=1)
+    snapshot_json: dict = Field(default_factory=dict, sa_type=JSON)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
 
 
 # ==================== 用户 ====================
@@ -50,6 +248,7 @@ class UserBase(SQLModel):
 # Properties to receive via API on creation
 class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
+    org_id: uuid.UUID | None = None  # 由管理员分配，注册流程可不传
 
 
 class UserRegister(SQLModel):
@@ -62,6 +261,8 @@ class UserRegister(SQLModel):
 class UserUpdate(UserBase):
     email: EmailStr | None = Field(default=None, max_length=255)  # type: ignore[assignment]
     password: str | None = Field(default=None, min_length=8, max_length=128)
+    org_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
 
 
 class UserUpdateMe(SQLModel):
@@ -88,10 +289,15 @@ class UpdatePassword(SQLModel):
 class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
+    org_id: uuid.UUID | None = Field(
+        default=None, foreign_key="organization.id", ondelete="SET NULL", index=True
+    )
+    group_id: uuid.UUID | None = Field(default=None, index=True)  # 所属教研组（可空，MVP 不启用教研组长）
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+    roles: list["Role"] = Relationship(link_model=UserRole, back_populates="users")
     items: list["Item"] = Relationship(back_populates="owner", cascade_delete=True)
     lesson_plans: list["LessonPlan"] = Relationship(back_populates="owner", cascade_delete=True)
     documents: list["Document"] = Relationship(back_populates="owner", cascade_delete=True)
@@ -104,7 +310,10 @@ class User(UserBase, table=True):
 # Properties to return via API, id is always required
 class UserPublic(UserBase):
     id: uuid.UUID
+    org_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
     created_at: datetime | None = None
+    roles: list[str] = []  # 角色 code 列表（便于前端菜单/权限判断）
 
 
 class UsersPublic(SQLModel):
@@ -252,6 +461,17 @@ class LessonPlan(LessonPlanBase, table=True):
           foreign_key="user.id", nullable=False, ondelete="CASCADE"
       )
       owner: User | None = Relationship(back_populates="lesson_plans")
+      org_id: uuid.UUID | None = Field(
+          default=None, foreign_key="organization.id", ondelete="CASCADE", index=True
+      )
+      group_id: uuid.UUID | None = Field(default=None, index=True)
+      visibility: Visibility = Field(default=Visibility.PRIVATE)
+      status: LessonPlanStatus = Field(default=LessonPlanStatus.DRAFT)
+      source_type: LessonPlanSource = Field(default=LessonPlanSource.PERSONAL)
+      template_id: uuid.UUID | None = Field(
+          default=None, foreign_key="lessonplantemplate.id", ondelete="SET NULL"
+      )
+      version: int = Field(default=1)
       subject_id: uuid.UUID | None = Field(default=None, foreign_key="subject.id", ondelete="SET NULL")
       extracted_text: str | None = Field(default=None)
       style: str | None = Field(default=None, max_length=50)
@@ -259,43 +479,442 @@ class LessonPlan(LessonPlanBase, table=True):
       knowledge_point_ids: list[str] = Field(default_factory=list, sa_type=JSON)
       # 教案校验报告（固定流水线 verify 节点输出）
       verification_report: dict | None = Field(default=None, sa_type=JSON)
+      # 课堂习题（教师备课时录入，作为「一键生成作业」的初始题目来源）
+      # 每项为 dict：{ id, type, stem, options, correct_option, answers, reference_answer }
+      classroom_exercises: list[dict] = Field(default_factory=list, sa_type=JSON)
 
 
 class LessonPlanCreate(SQLModel):
-      """创建教案请求体"""
-      title: str = Field(min_length=1, max_length=255)
-      subject: str = Field(min_length=1, max_length=100)
-      grade_level: GradeLevel | None = None
-      teaching_objectives: str | None = None
-      teaching_process: str | None = None
-      knowledge_point_ids: list[str] = []
-      subject_id: str | None = None
+    """创建教案请求体"""
+    title: str = Field(min_length=1, max_length=255)
+    subject: str = Field(min_length=1, max_length=100)
+    grade_level: GradeLevel | None = None
+    teaching_objectives: str | None = None
+    teaching_process: str | None = None
+    knowledge_point_ids: list[str] = []
+    subject_id: str | None = None
+    visibility: Visibility = Visibility.PRIVATE
+    source_type: LessonPlanSource = LessonPlanSource.PERSONAL
+    group_id: uuid.UUID | None = None
+    template_id: uuid.UUID | None = None
 
 
 class LessonPlanUpdate(SQLModel):
-      """更新教案请求体"""
-      title: str | None = Field(default=None, min_length=1, max_length=255)
-      subject: str | None = Field(default=None, min_length=1, max_length=100)
-      grade_level: GradeLevel | None = None
-      teaching_objectives: str | None = None
-      teaching_process: str | None = None
-      knowledge_point_ids: list[str] | None = None
+    """更新教案请求体（status 走状态机专用端点，不在此处修改）"""
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    subject: str | None = Field(default=None, min_length=1, max_length=100)
+    grade_level: GradeLevel | None = None
+    teaching_objectives: str | None = None
+    teaching_process: str | None = None
+    knowledge_point_ids: list[str] | None = None
+    group_id: uuid.UUID | None = None
+    visibility: Visibility | None = None
+    source_type: LessonPlanSource | None = None
+    classroom_exercises: list[dict] | None = None
 
 
 class LessonPlanPublic(LessonPlanBase):
-      """教案返回体（knowledge_points 从 Neo4j 按 ID 拉取）"""
-      id: uuid.UUID
-      owner_id: uuid.UUID
-      subject_id: str | None = None
-      created_at: datetime | None = None
-      knowledge_point_ids: list[str] = []
-      knowledge_points: list[KnowledgePointOut] = []
+    """教案返回体（knowledge_points 从 Neo4j 按 ID 拉取）"""
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    org_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
+    visibility: Visibility = Visibility.PRIVATE
+    status: LessonPlanStatus = LessonPlanStatus.DRAFT
+    source_type: LessonPlanSource = LessonPlanSource.PERSONAL
+    template_id: uuid.UUID | None = None
+    version: int = 1
+    subject_id: str | None = None
+    created_at: datetime | None = None
+    knowledge_point_ids: list[str] = []
+    knowledge_points: list[KnowledgePointOut] = []
+    classroom_exercises: list[dict] = []
 
 
 class LessonPlansPublic(SQLModel):
       """教案列表返回体"""
       data: list[LessonPlanPublic]
       count: int
+
+
+# ==================== 作业 / 提交 ====================
+
+class HomeworkStatus(str, enum.Enum):
+    DRAFT = "draft"         # 草稿（可编辑）
+    PUBLISHED = "published"  # 已发布（生成提交入口）
+    CLOSED = "closed"        # 已关闭
+
+
+class QuestionType(str, enum.Enum):
+    CHOICE = "choice"  # 选择
+    FILL = "fill"      # 填空
+    SHORT = "short"    # 简答
+    ESSAY = "essay"    # 论述
+
+
+class SubmissionStatus(str, enum.Enum):
+    SUBMITTED = "submitted"  # 已提交
+    GRADED = "graded"  # 已自动判分（客观题已判 / 主观题已给建议，待教师终评）
+
+
+class HomeworkQuestion(SQLModel):
+    """作业单题（作为 Homework.questions JSON 数组中的元素，不直接建表）。
+
+    - type: 选择/填空/简答/论述
+    - knowledge_point_ids: 每题必选 ≥1 个关联知识点（发布时校验）
+    - options / correct_option: 选择题专用
+    - answers: 填空题多解（支持多个正确答案）
+    - reference_answer: 简答/论述参考答案
+    """
+    id: str
+    type: QuestionType
+    stem: str
+    knowledge_point_ids: list[str] = []
+    options: list[str] = []               # 选择题选项
+    correct_option: int | None = None     # 选择题正确选项索引
+    answers: list[str] = []               # 填空题多解
+    reference_answer: str = ""            # 简答/论述参考答案
+    score: float = Field(default=5.0, description="本题满分（默认 5 分）")
+
+
+class HomeworkBase(SQLModel):
+    title: str = Field(min_length=1, max_length=255, description="作业标题")
+    knowledge_point_ids: list[str] = Field(
+        default_factory=list, sa_type=JSON, description="作业知识点题库（继承教案 + 可扩充）"
+    )
+    questions: list[HomeworkQuestion] = Field(
+        default_factory=list, sa_type=JSON, description="题目列表"
+    )
+
+
+class Homework(HomeworkBase, table=True):
+    """作业表。题目以 JSON 数组存储，便于整体编辑与版本快照。"""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    lesson_plan_id: uuid.UUID | None = Field(
+        default=None, foreign_key="lessonplan.id", ondelete="SET NULL", index=True
+    )
+    org_id: uuid.UUID | None = Field(
+        default=None, foreign_key="organization.id", ondelete="CASCADE", index=True
+    )
+    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    status: HomeworkStatus = Field(default=HomeworkStatus.DRAFT)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class HomeworkCreate(HomeworkBase):
+    """创建空白作业请求体"""
+    lesson_plan_id: str | None = None
+
+
+class HomeworkUpdate(SQLModel):
+    """更新作业请求体（字段均可选，部分更新）"""
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    knowledge_point_ids: list[str] | None = None
+    questions: list[HomeworkQuestion] | None = None
+
+
+class HomeworkPublic(HomeworkBase):
+    id: uuid.UUID
+    lesson_plan_id: uuid.UUID | None = None
+    owner_id: uuid.UUID
+    org_id: uuid.UUID | None = None
+    status: HomeworkStatus
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    # 知识点题库解析（来自 Neo4j，供前端选择器使用）
+    knowledge_points: list[KnowledgePointOut] = []
+
+
+class HomeworksPublic(SQLModel):
+    data: list[HomeworkPublic]
+    count: int
+
+
+class Submission(SQLModel, table=True):
+    """学生提交记录。本期以「模拟提交 / 教师代录」实现，不依赖学生端。
+
+    - student_id 明文仅在入参出现，落库存储为哈希（student_id_hash）
+    - answers: 学生作答，元素 { question_id, content }
+    """
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    homework_id: uuid.UUID = Field(
+        foreign_key="homework.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    org_id: uuid.UUID | None = Field(
+        default=None, foreign_key="organization.id", ondelete="CASCADE", index=True
+    )
+    student_id_hash: str = Field(max_length=128, index=True)  # 学号哈希存储
+    answers: list[dict] = Field(default_factory=list, sa_type=JSON)
+    status: SubmissionStatus = Field(default=SubmissionStatus.SUBMITTED)
+    # PRD §7④：同一学生重复提交以最后一次为准，旧版本标记 superseded（不物理删除，保留留痕）
+    superseded: bool = Field(default=False, description="True=已被该学生的后续提交覆盖")
+    submitted_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+    graded_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True), description="自动判分完成时间"
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class SimulateSubmitRequest(SQLModel):
+    """模拟提交 / 教师代录入参（学号为明文，落库转哈希）"""
+    student_id: str = Field(min_length=1, max_length=64, description="学号（明文入参，存储为哈希）")
+    answers: list[dict] = Field(default_factory=list, description="学生作答 [{question_id, content}]")
+
+
+class SubmissionPublic(SQLModel):
+    id: uuid.UUID
+    homework_id: uuid.UUID
+    student_id_hash: str
+    answers: list[dict] = []
+    status: SubmissionStatus
+    superseded: bool = False  # True=已被后续提交覆盖（PRD §7④）
+    submitted_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class SubmissionsPublic(SQLModel):
+    data: list[SubmissionPublic]
+    count: int
+
+
+# ==================== 判分 / 批改（FR-04/05/06） ====================
+# 客观题自动判分（规则 + 标准答案）、主观题 AI 辅助建议、教师终评
+
+
+class QuestionGradeStatus(str, enum.Enum):
+    PENDING = "pending"  # 待判分
+    AUTO_GRADED = "auto_graded"  # 已自动判分 / 已给 AI 建议，待教师终评
+    FINALIZED = "finalized"  # 教师已确认终评（不可逆）
+
+
+class SubmissionGrade(SQLModel, table=True):
+    """每题判分记录（一题一行，挂在 Submission 下）。
+
+    - 客观题：is_correct / auto_score / auto_detail（判分依据，可溯源）
+    - 主观题：ai_suggested_score / ai_comment / ai_knowledge_points / ai_confidence /
+              needs_human（置信度 < 0.7 强制"建议人工"）
+    - 教师终评（FR-06）：final_score / final_comment / finalized（不可逆）
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    submission_id: uuid.UUID = Field(
+        foreign_key="submission.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    question_id: str = Field(max_length=64, index=True)
+    question_type: QuestionType
+    full_score: float = Field(default=0.0, description="本题满分")
+
+    # 客观题判分结果
+    is_correct: bool | None = None
+    auto_score: float | None = None
+    auto_detail: str | None = None  # 判分依据 / 溯源说明
+
+    # 主观题 AI 辅助建议（FR-05）
+    ai_suggested_score: float | None = None
+    ai_comment: str | None = None
+    ai_knowledge_points: list[str] = Field(
+        default_factory=list, sa_type=JSON, description="AI 判定命中的知识点 ID"
+    )
+    ai_confidence: float | None = None
+    needs_human: bool = Field(default=False)  # 置信度 < 0.7 强制"建议人工"
+    # PRD §7①：AI 调用失败（超时/异常）时显式标记，避免把启发式兜底误认为真实 AI 结论
+    ai_unavailable: bool = Field(default=False, description="True=AI 不可用，已转人工")
+
+    # 教师终评（FR-06）
+    final_score: float | None = None
+    final_comment: str | None = None
+    finalized: bool = Field(default=False)
+    finalized_at: datetime | None = None
+
+    status: QuestionGradeStatus = Field(default=QuestionGradeStatus.PENDING)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class QuestionGradePublic(SQLModel):
+    id: uuid.UUID
+    submission_id: uuid.UUID
+    question_id: str
+    question_type: QuestionType
+    full_score: float
+    is_correct: bool | None = None
+    auto_score: float | None = None
+    auto_detail: str | None = None
+    ai_suggested_score: float | None = None
+    ai_comment: str | None = None
+    ai_knowledge_points: list[str] = []
+    ai_confidence: float | None = None
+    needs_human: bool = False
+    ai_unavailable: bool = False  # PRD §7① AI 不可用，转人工
+    final_score: float | None = None
+    final_comment: str | None = None
+    finalized: bool = False
+    finalized_at: datetime | None = None
+    status: QuestionGradeStatus
+
+
+class SubmissionGradesPublic(SQLModel):
+    data: list[QuestionGradePublic]
+    count: int
+    submission_status: str | None = None
+
+
+class FinalizeGradeRequest(SQLModel):
+    """教师终评请求（FR-06）。
+
+    - adopt_suggestion=True：一键采纳 AI 建议（final_score / final_comment 取 AI 建议值）
+    - 否则以 final_score + final_comment 落库（手动改分 + 写评语）
+    - confirm=True：前端二次确认弹窗后置位，后端据此放行不可逆写库
+    """
+
+    final_score: float | None = None
+    final_comment: str | None = None
+    adopt_suggestion: bool = False
+    confirm: bool = Field(default=False, description="二次确认开关（前端弹窗确认后置 True）")
+
+
+class GradeTriggerResponse(SQLModel):
+    submission_id: uuid.UUID
+    graded_count: int
+    grades: list[QuestionGradePublic]
+    message: str = ""
+
+
+class LabeledSetReport(SQLModel):
+    """FR-04 标注集验收报告：客观题自动判分准确率与错判溯源。"""
+
+    total: int
+    correct: int
+    accuracy: float
+    threshold: float = 0.95
+    passed: bool
+    misjudged: list[dict] = Field(default_factory=list)
+
+
+# ==================== FR-07 错误聚合看板 ====================
+
+
+class ErrorStatScope(str, enum.Enum):
+    CLASS = "class"  # 班级视角（整份作业全部提交）
+    PERSONAL = "personal"  # 个人视角（某一学生的提交）
+
+
+class ErrorPattern(SQLModel):
+    """高频错误模式：一种错误表述及其出现次数与来源题目。"""
+
+    expression: str
+    count: int
+    question_ids: list[str] = Field(default_factory=list)
+
+
+class KnowledgePointErrorStat(SQLModel):
+    """单个关联知识点的错误聚合结果。
+
+    FR-07 要求覆盖全部关联知识点：即便某知识点无人作答（graded_count=0），
+    也必须以 error_rate=0 出现，确保「无遗漏」。
+    """
+
+    knowledge_point_id: str
+    knowledge_point_name: str | None = None
+    question_count: int = 0  # 该知识点关联的题目数
+    graded_count: int = 0  # 已批改题次数
+    wrong_count: int = 0
+    error_rate: float = 0.0
+    # PRD §7⑤：知识点已被删除（图谱中查不到）→ False，看板标「已失效」且不计入活跃统计
+    is_active: bool = True
+    top_patterns: list[ErrorPattern] = Field(default_factory=list)
+
+
+class ErrorDashboard(SQLModel):
+    homework_id: uuid.UUID
+    homework_title: str = ""
+    scope: ErrorStatScope
+    submission_id: uuid.UUID | None = None
+    total_submissions: int = 0
+    graded_submissions: int = 0
+    knowledge_points: list[KnowledgePointErrorStat] = Field(default_factory=list)
+    knowledge_point_total: int = 0  # 全部关联知识点数（用于"无遗漏"校验）
+
+
+# ==================== FR-08 误区回流 ====================
+
+
+class MisconceptionSuggestion(SQLModel):
+    knowledge_point_id: str
+    knowledge_point_name: str | None = None
+    error_rate: float
+    wrong_count: int
+    graded_count: int
+    threshold: float
+    typical_expressions: list[str] = Field(default_factory=list)
+    suggested_content: str = ""
+    suggested_correction: str = ""
+
+
+class MisconceptionSuggestions(SQLModel):
+    data: list[MisconceptionSuggestion]
+    count: int
+    threshold: float
+
+
+class BackflowConfirmRequest(SQLModel):
+    """教师确认回流：写入知识点误区 + 纠正，来源标注"教学回流"。"""
+
+    knowledge_point_id: str
+    content: str
+    correction: str = ""
+
+
+class MisconceptionOut(SQLModel):
+    id: str
+    content: str
+    correction: str = ""
+    source: str = "manual"
+
+
+class MistakeFeedbackStatus(str, enum.Enum):
+    """PRD §9 R-2：误区回流决策三态（留痕 + 幂等依据）。"""
+
+    PENDING = "pending"  # 已生成建议，待教师决策
+    CONFIRMED = "confirmed"  # 已采纳并写入图谱
+    REJECTED = "rejected"  # 已驳回
+
+
+class MistakeFeedback(SQLModel, table=True):
+    """误区回流决策留痕表（幂等键：homework_id + knowledge_point_id + content）。
+
+    同一条建议被重复确认时，命中已有 CONFIRMED 记录即直接返回，不再重复写入图谱。
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    homework_id: uuid.UUID = Field(
+        foreign_key="homework.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    knowledge_point_id: str = Field(max_length=128, index=True)
+    content: str = Field(max_length=500)
+    correction: str = Field(default="", max_length=500)
+    misconception_id: str = Field(default="", max_length=128, description="图谱误区节点 ID")
+    status: MistakeFeedbackStatus = Field(default=MistakeFeedbackStatus.PENDING)
+    decided_by: uuid.UUID | None = Field(default=None, foreign_key="user.id")
+    decided_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
 
 
 # ==================== 文件上传与文档解析 ====================
@@ -396,7 +1015,7 @@ class ScheduleCreate(SQLModel):
     day_of_week: int = Field(ge=0, le=6)
     start_time: str
     end_time: str
-    subject: str
+    subject: str = Field(min_length=1, max_length=200, description="科目名称，不可为空")
     classroom: str = ""
 
 class SchedulePublic(SQLModel):
@@ -428,7 +1047,7 @@ class Task(SQLModel, table=True):
     owner: User | None = Relationship(back_populates="tasks")
 
 class TaskCreate(SQLModel):
-    title: str
+    title: str = Field(min_length=1, max_length=500, description="任务标题，不可为空")
     description: str = ""
     due_date: str = ""
     priority: str = "normal"
@@ -458,7 +1077,7 @@ class Subject(SQLModel, table=True):
     owner: User | None = Relationship(back_populates="subjects")
 
 class SubjectCreate(SQLModel):
-    name: str
+    name: str = Field(min_length=1, max_length=200, description="学科名称，不可为空")
     description: str | None = None
 
 class SubjectPublic(SQLModel):
@@ -487,12 +1106,14 @@ class Textbook(SQLModel, table=True):
     owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
 
 class TextbookCreate(SQLModel):
-    name: str
+    name: str = Field(min_length=1, max_length=500)
     version: str | None = None
     grade_level: str | None = None
     cover_url: str | None = None
     description: str | None = None
-    subject_id: str
+    # 用 UUID 类型而非 str：非法 UUID 由 pydantic 拦截返回 422，
+    # 避免 uuid.UUID() 在路由内抛未捕获 ValueError 造成 500。
+    subject_id: uuid.UUID
 
 class TextbookPublic(SQLModel):
     id: uuid.UUID
@@ -680,6 +1301,7 @@ class KnowledgeSuggestion(SQLModel, table=True):
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
     )
+    review_note: str | None = Field(default=None, max_length=2000)  # 驳回/处理理由（管理员填写，回推教师）
 
 
 class SuggestionCreate(SQLModel):
@@ -709,3 +1331,188 @@ class SuggestionPublic(SQLModel):
     status: str
     submitter_id: uuid.UUID
     created_at: datetime | None = None
+    review_note: str | None = None
+
+
+# ==================== 组织 / 角色 / 权限 返回体 ====================
+
+class OrganizationPublic(SQLModel):
+    id: uuid.UUID
+    name: str
+    type: OrgType
+    parent_id: uuid.UUID | None = None
+    created_at: datetime | None = None
+
+
+class OrganizationsPublic(SQLModel):
+    data: list[OrganizationPublic]
+    count: int
+
+
+class PermissionPublic(SQLModel):
+    code: str
+    name: str
+    description: str | None = None
+
+
+class PermissionsPublic(SQLModel):
+    data: list[PermissionPublic]
+
+
+class RolePublic(SQLModel):
+    id: uuid.UUID
+    code: str
+    name: str
+    description: str | None = None
+    org_id: uuid.UUID | None = None
+    is_system: bool = False
+    permissions: list[str] = []  # 权限点 code 列表
+
+
+class RolesPublic(SQLModel):
+    data: list[RolePublic]
+    count: int
+
+
+# ==================== 资源共享例外（ACL） ====================
+
+class ResourceAclCreate(SQLModel):
+    resource_type: ResourceType = ResourceType.LESSON_PLAN
+    resource_id: uuid.UUID
+    grantee_type: GranteeType = GranteeType.USER
+    grantee_id: uuid.UUID
+    permission: AclPermission = AclPermission.VIEW
+
+
+class ResourceAclPublic(SQLModel):
+    id: uuid.UUID
+    org_id: uuid.UUID
+    resource_type: ResourceType
+    resource_id: uuid.UUID
+    grantee_type: GranteeType
+    grantee_id: uuid.UUID
+    permission: AclPermission
+    created_at: datetime | None = None
+
+
+class ResourceAclsPublic(SQLModel):
+    data: list[ResourceAclPublic]
+    count: int
+
+
+# ==================== 审核记录 返回体 ====================
+
+class ReviewRecordPublic(SQLModel):
+    id: uuid.UUID
+    org_id: uuid.UUID
+    resource_type: ResourceType
+    resource_id: uuid.UUID
+    reviewer_id: uuid.UUID
+    action: ReviewAction
+    from_status: str | None = None
+    to_status: str | None = None
+    comment: str | None = None
+    created_at: datetime | None = None
+
+
+class ReviewRecordsPublic(SQLModel):
+    data: list[ReviewRecordPublic]
+    count: int
+
+
+# ==================== 贡献事件 返回体 ====================
+
+class ContributionEventPublic(SQLModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    org_id: uuid.UUID
+    event_type: ContributionType
+    resource_type: ResourceType | None = None
+    resource_id: uuid.UUID | None = None
+    points: int
+    period: str | None = None
+    created_at: datetime | None = None
+
+
+class ContributionsMe(SQLModel):
+    """我的共建贡献进度（基于 contribution_event 聚合）"""
+    period: str
+    total_points: int
+    events_count: int
+    goal_points: int = 0
+    progress: float = 0.0  # 0~1
+    breakdown: dict = {}    # event_type -> 次数
+
+
+# ==================== 教案模板 返回体 ====================
+
+class LessonPlanTemplateCreate(SQLModel):
+    title: str = Field(min_length=1, max_length=255)
+    subject: str = Field(min_length=1, max_length=100)
+    grade_level: GradeLevel | None = None
+    teaching_objectives: str | None = None
+    teaching_process: str | None = None
+    subject_id: str | None = None
+    visibility: Visibility = Visibility.SCHOOL
+    source_type: LessonPlanSource = LessonPlanSource.KNOWLEDGE_BASE
+
+
+class LessonPlanTemplatePublic(SQLModel):
+    id: uuid.UUID
+    org_id: uuid.UUID
+    owner_id: uuid.UUID
+    title: str
+    subject: str
+    grade_level: GradeLevel | None = None
+    visibility: Visibility = Visibility.SCHOOL
+    status: LessonPlanStatus = LessonPlanStatus.APPROVED
+    source_type: LessonPlanSource = LessonPlanSource.KNOWLEDGE_BASE
+    created_at: datetime | None = None
+
+
+class LessonPlanTemplatesPublic(SQLModel):
+    data: list[LessonPlanTemplatePublic]
+    count: int
+
+
+class LessonPlanVersionSnapshotPublic(SQLModel):
+    id: uuid.UUID
+    lesson_plan_id: uuid.UUID
+    org_id: uuid.UUID
+    version: int
+    created_at: datetime | None = None
+    snapshot_json: dict = {}
+
+
+# ==================== 新 Dashboard 契约 ====================
+
+class ScenarioCard(SQLModel):
+    """配置化场景卡：按组织类型/人群标签/权限显示，点击带筛选进入对应页"""
+    id: str
+    title: str
+    description: str
+    icon: str | None = None
+    target: str                      # 目标路由
+    required_permissions: list[str] = []  # 无权限则不显示
+    audience_tags: list[str] = []    # 人群标签（如 teacher / research_admin）
+
+
+class MyLessonPlan(SQLModel):
+    """我的教案聚合卡片（含后端统一计算的完整度）"""
+    id: uuid.UUID
+    title: str
+    subject: str
+    grade_level: GradeLevel | None = None
+    status: LessonPlanStatus = LessonPlanStatus.DRAFT
+    visibility: Visibility = Visibility.PRIVATE
+    completeness_score: int = 0
+    missing_sections: list[str] = []
+    updated_at: datetime | None = None
+
+
+class DashboardSummary(SQLModel):
+    """/dashboard/summary 聚合返回"""
+    scenario_cards: list[ScenarioCard] = []
+    my_lesson_plans: list[MyLessonPlan] = []
+    my_contributions: ContributionsMe | None = None
+    stats: dict = {}

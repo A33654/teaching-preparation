@@ -1,0 +1,13 @@
+# 测试平台配置（覆盖 config.py 默认值）
+env:
+  host: 127.0.0.1
+  port: 18000
+  mock_external: true
+functional:
+  pass_rate_min: 95.0
+performance:
+  read_p95_ms: 200
+  write_p95_ms: 500
+ai_eval:
+  rubric_avg_min: 4.0
+  kp_coverage_min: 90.0

@@ -1,4 +1,4 @@
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app import crud
 from app.core.config import settings
@@ -17,13 +17,12 @@ engine = create_engine(
 
 
 def init_db(session: Session) -> None:
-    # Tables should be created with Alembic migrations
-    # But if you don't want to use migrations, create
-    # the tables un-commenting the next lines
-    # from sqlmodel import SQLModel
+    # 确保所有模型（含作业/提交相关表）已注册到 metadata
+    from app import models  # noqa: F401
 
-    # This works because the models are already imported and registered from app.models
-    # SQLModel.metadata.create_all(engine)
+    # 与 Alembic 互补：对新增表/列做兜底建表，保证开发/测试/本地直接启动也能工作。
+    # 生产环境仍由 Alembic 迁移统一管理表结构；此处 create_all 幂等，不会改动已存在表。
+    SQLModel.metadata.create_all(engine)
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

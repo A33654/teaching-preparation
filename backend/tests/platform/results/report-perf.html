@@ -1,0 +1,49 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>测试自动化平台 · 报告</title><style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --ink:#1f2933; --muted:#647084;
+  --line:#e3e8ef; --ok:#1f9d55; --warn:#d9822b; --bad:#e0483e; --accent:#2f6fed;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:14px;line-height:1.6}
+header{background:linear-gradient(120deg,#2f6fed,#5b8def);color:#fff;padding:22px 28px}
+header h1{margin:0;font-size:20px}
+header .sub{opacity:.9;font-size:12px;margin-top:4px}
+.wrap{max-width:1080px;margin:0 auto;padding:20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:18px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card .k{font-size:12px;color:var(--muted)}
+.card .v{font-size:26px;font-weight:700;margin-top:4px}
+.card .v.ok{color:var(--ok)} .card .v.warn{color:var(--warn)} .card .v.bad{color:var(--bad)}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin:14px 0}
+section h2{margin:0 0 12px;font-size:16px;border-left:4px solid var(--accent);padding-left:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+.badge.pass{background:#e6f6ec;color:var(--ok)}
+.badge.fail{background:#fdecea;color:var(--bad)}
+.badge.partial{background:#fef3e2;color:var(--warn)}
+.badge.na{background:#eef1f5;color:var(--muted)}
+.bar{height:8px;background:#eef1f5;border-radius:6px;overflow:hidden}
+.bar > i{display:block;height:100%;background:var(--accent)}
+.checklist li{margin:6px 0}
+footer{color:var(--muted);font-size:12px;text-align:center;padding:18px}
+</style></head>
+<body><header><h1>教师智能备课系统 · 测试报告</h1>
+<div class="sub">生成时间 2026-10-26 20:06:49 · 环境 127.0.0.1:18000 · mock_external=True</div></header>
+<div class="wrap">
+    <div class="cards">
+      <div class="card"><div class="k">总体状态</div><div class="v partial"><span class="badge partial">部分通过</span></div></div>
+      <div class="card"><div class="k">用例总数</div><div class="v">0</div></div>
+      <div class="card"><div class="k">通过率</div><div class="v bad">0.0%</div></div>
+      <div class="card"><div class="k">AI 评测均分</div><div class="v">-</div></div>
+      <div class="card"><div class="k">性能场景</div><div class="v">8</div></div>
+    </div>
+        <section><h2>性能与压力 (L2 · JMeter)</h2>
+          <table><thead><tr><th>场景</th><th>并发</th><th>P95</th><th>TPS</th><th>错误率</th><th>状态</th></tr></thead><tbody><tr><td>01-auth-login</td><td>-</td><td>- ms</td><td>-</td><td>-%</td><td><span class="badge na">无数据</span></td></tr><tr><td>02-kp-list-graph</td><td>-</td><td>- ms</td><td>-</td><td>-%</td><td><span class="badge na">无数据</span></td></tr><tr><td>03-lesson-plan-crud</td><td>-</td><td>- ms</td><td>-</td><td>-%</td><td><span class="badge na">无数据</span></td></tr><tr><td>04-doc-upload</td><td>-</td><td>- ms</td><td>-</td><td>-%</td><td><span class="badge na">无数据</span></td></tr><tr><td>05-chat-sse</td><td>-</td><td>- ms</td><td>-</td><td>-%</td><td><span class="badge na">无数据</span></td></tr><tr><td>06-admin-batch</td><td>-</td><td>- ms</td><td>-</td><td>-%</td><td><span class="badge na">无数据</span></td></tr><tr><td>07-mixed-load</td><td>-</td><td>- ms</td><td>-</td><td>-%</td><td><span class="badge na">无数据</span></td></tr><tr><td>08-stress-ramp</td><td>-</td><td>- ms</td><td>-</td><td>-%</td><td><span class="badge na">无数据</span></td></tr></tbody></table>
+          <p class="badge na">说明：需 Java17+JMeter 运行 .jmx 后回填结果</p>
+        </section><section><h2>合格指标核验</h2><ul class='checklist'><li><span class="badge fail">未通过</span> 单元测试通过率 — 0.0% (合格线 ≥95.0%): 通过 0/0</li><li><span class="badge fail">未通过</span> 接口功能通过率 — 0.0% (合格线 ≥95.0%): 通过 0/0</li></ul></section></div>
+<footer>由自建测试自动化平台生成 · 数据源 results.json</footer></body></html>

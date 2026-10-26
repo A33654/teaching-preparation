@@ -73,12 +73,26 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = "changethis123"
     NEO4J_DATABASE: str = "neo4j"
 
+    # ---- 密码哈希（Argon2id）成本参数 ----
+    # P02：默认 time_cost=3 / memory_cost=65536(64MiB) 下单次哈希约 110ms，
+    # 登录并发时因内存带宽争抢放大到 P50 619ms。这里下调为
+    # time_cost=2 / memory_cost=32768(32MiB)，单次哈希约 36ms，
+    # 仍高于 OWASP 建议下限（m=19MiB, t=2），属于安全与性能的折中。
+    # 注意：仅影响「新写入」的密码哈希；已存哈希自带参数，校验照旧可用，无需重置用户密码。
+    ARGON2_TIME_COST: int = 2
+    ARGON2_MEMORY_COST: int = 32768  # 单位 KiB
+
     # LangGraph Agent 配置
     AGENT_MAX_ITERATIONS: int = 8  # ReAct agent 最大工具调用轮数
     AGENT_CHAT_TOP_K: int = 10  # 每次检索返回的图节点/文档条数
     # 知识图谱强制触发兜底开关：True 时规则层识别图谱意图后强制预检索一次，
     # 保证回答基于真实图谱数据；False 时完全由大模型自主决定调用时机
     AGENT_FORCE_KG_TRIGGER: bool = True
+
+    # 演示库自动灌库：启动时若 Neo4j 图谱为空，自动预置示范知识库（初中物理 人教版八上），
+    # 避免「教师一进来库空 → 全 RAG 兜底」的演示翻车。生产环境可置为 False。
+    # 该逻辑幂等，已灌库则直接跳过；编排见 app/initial_data.seed_knowledge_graph。
+    SEED_DEMO_ON_STARTUP: bool = True
 
     # Qwen (千问) - 主 LLM
     QWEN_API_KEY: str = ""
@@ -94,6 +108,16 @@ class Settings(BaseSettings):
     KIMI_API_KEY: str = ""
     KIMI_BASE_URL: str = "https://api.moonshot.cn/v1"
     KIMI_MODEL: str = "kimi-k2.6"
+
+    # ---- FR-08 误区回流 ----
+    # 知识点错误率 ≥ 该阈值时，推送「建议补入图谱误区」卡片（0-1，默认 40%）
+    MISCONCEPTION_BACKFLOW_THRESHOLD: float = 0.4
+    # ---- FR-07 错误率统计 ----
+    # 主观题得分率 < 该阈值即判定为「未掌握 / 计入错误」（默认 60%）
+    SUBJECTIVE_WRONG_SCORE_RATIO: float = 0.6
+    # ---- FR-05/PRD §7② AI 置信度门槛 ----
+    # AI 建议置信度 < 该阈值 → needs_human，且终评必须由教师手填（不得一键采纳）
+    AI_CONFIDENCE_HUMAN_THRESHOLD: float = 0.7
 
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
