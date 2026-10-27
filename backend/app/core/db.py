@@ -8,6 +8,9 @@ engine = create_engine(
     str(settings.SQLALCHEMY_DATABASE_URI),
     # 自动探测并踢掉失效连接（数据库容器重启/网络抖动后连接池里的旧连接会挂起请求）
     pool_pre_ping=True,
+    # 连接池按并发量配置（默认值 5/10 在 --workers 多进程 + 高并发下会 QueuePool 超时）
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
 )
 
 

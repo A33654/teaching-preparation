@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
+from app.core.cache import cache
+from app.core.config import settings
 from app.knowledge_graph import KnowledgeGraphRepository
 from app.models import (
     KnowledgePointCreate,
@@ -65,6 +67,35 @@ def _check_access(
     return kp
 
 
+# ==================== 列表缓存（Redis，可选） ====================
+# 知识点列表是备课工作台 / 知识库页打开时的高频读请求，原实现每次都要向 Neo4j
+# 发两条查询（count + list 各一次往返）。这里按「组织 + 分页 + 筛选」全维度缓存，
+# 任何图谱写操作都会主动失效（见下方各写接口末尾的 _invalidate_kp_list_cache）。
+# REDIS_URL 未配置时 cache 自动降级为直连 Neo4j，行为与优化前完全一致。
+KP_LIST_CACHE_PREFIX = "kp:list:"
+
+
+def _kp_list_cache_key(
+    org_id: str | None,
+    skip: int,
+    limit: int,
+    subject: str | None,
+    grade_level: str | None,
+    search: str | None,
+) -> str:
+    """列表缓存键：涵盖所有影响结果的维度，避免跨组织 / 跨筛选条件串数据。"""
+    return (
+        f"{KP_LIST_CACHE_PREFIX}"
+        f"{org_id or '-'}:{skip}:{limit}:{subject or '-'}:"
+        f"{grade_level or '-'}:{search or '-'}"
+    )
+
+
+def _invalidate_kp_list_cache() -> None:
+    """图谱写入后清理列表缓存（按前缀 SCAN 删除，不用阻塞型的 KEYS）。"""
+    cache.delete_prefix(KP_LIST_CACHE_PREFIX)
+
+
 # ==================== 全图查询 ====================
 
 
@@ -94,8 +125,15 @@ def read_knowledge_points(
     search: str | None = Query(default=None, description="按名称搜索"),
 ) -> Any:
     """获取知识点列表（Neo4j，本组织隔离），支持按学科、学段筛选和名称搜索"""
-    repo = _repo()
     org_id = None if current_user.is_superuser else (str(current_user.org_id) if current_user.org_id else None)
+
+    # ① 先查缓存：命中则直接返回，省掉 Neo4j 的 count + list 两次往返
+    cache_key = _kp_list_cache_key(org_id, skip, limit, subject, grade_level, search)
+    if cached := cache.get(cache_key):
+        return KnowledgePointsPublic.model_validate_json(cached)
+
+    # ② 未命中：查 Neo4j 并回写缓存
+    repo = _repo()
     items, count = repo.list_knowledge_points(
         org_id=org_id,
         skip=skip,
@@ -104,10 +142,12 @@ def read_knowledge_points(
         grade_level=grade_level,
         search=search,
     )
-    return KnowledgePointsPublic(
+    response = KnowledgePointsPublic(
         data=[KnowledgePointOut(**kp) for kp in items],
         count=count,
     )
+    cache.set(cache_key, response.model_dump_json(), settings.REDIS_CACHE_TTL)
+    return response
 
 
 @router.get("/{id}", response_model=KnowledgePointOut)
@@ -135,6 +175,7 @@ def create_knowledge_point(
         is_key_point=kp_in.is_key_point,
         org_id=str(current_user.org_id) if current_user.org_id else None,
     )
+    _invalidate_kp_list_cache()
     return KnowledgePointOut(**kp)
 
 
@@ -155,6 +196,7 @@ def update_knowledge_point(
     updated = repo.update_knowledge_point(id, **fields)
     if not updated:
         raise HTTPException(status_code=404, detail="知识点不存在")
+    _invalidate_kp_list_cache()
     return KnowledgePointOut(**updated)
 
 
@@ -166,6 +208,7 @@ def delete_knowledge_point(
     repo = _repo()
     _check_access(repo, id, current_user)
     repo.delete_knowledge_point(id)
+    _invalidate_kp_list_cache()
     return {"message": "知识点已删除"}
 
 
@@ -191,6 +234,7 @@ def create_knowledge_relation(
     edge = repo.create_relation(id, relation_in.target_id, relation_in.relation_type)
     if not edge:
         raise HTTPException(status_code=400, detail="创建关系失败")
+    _invalidate_kp_list_cache()
     return KnowledgeRelationOut(**edge)
 
 
@@ -217,6 +261,7 @@ def delete_knowledge_relation(
     ok = repo.delete_relation(id, target_id, relation_type)
     if not ok:
         raise HTTPException(status_code=404, detail="关系不存在")
+    _invalidate_kp_list_cache()
     return {"message": "关系已删除"}
 
 
@@ -429,6 +474,7 @@ def create_exam_point(
         description=body.description,
     )
     repo.link_kp_exam_point(id, exam["id"])
+    _invalidate_kp_list_cache()
     return exam
 
 
@@ -441,6 +487,7 @@ def delete_exam_point(
 ) -> Any:
     repo = _repo()
     repo.delete_exam_point(exam_id)
+    _invalidate_kp_list_cache()
     return {"message": "考点已删除"}
 
 
@@ -471,6 +518,7 @@ def create_misconception(
         correction=body.correction,
     )
     repo.link_kp_misconception(id, mis["id"])
+    _invalidate_kp_list_cache()
     return mis
 
 
@@ -483,4 +531,5 @@ def delete_misconception(
 ) -> Any:
     repo = _repo()
     repo.delete_misconception(mis_id)
+    _invalidate_kp_list_cache()
     return {"message": "误区已删除"}

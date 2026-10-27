@@ -123,5 +123,4 @@ scripts/start-neo4j-wsl.sh  # Neo4j 启动 + IP 自动同步
 
 ## 📄 其他
 
-- 详细技术说明见 `docs/`（环境部署、图谱 Schema、流水线设计）
 - LLM 请求经 OpenAI 兼容接口，Key 通过环境变量注入（`.env` 不入库）

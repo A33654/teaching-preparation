@@ -84,20 +84,26 @@ def main() -> int:
     args = ap.parse_args()
 
     base = f"http://{args.host}:{args.port}/api/v1"
-    with httpx.Client() as c:
-        r = c.post(
-            base + "/login/access-token",
-            data={"username": args.email, "password": args.password},
-            timeout=20,
-        )
-        r.raise_for_status()
-        token = r.json()["access_token"]
+    # 复用单个带连接池的客户端：原实现每个请求都新建 httpx.Client（每次一条新 TCP 连接），
+    # 高并发下会产生海量 TIME_WAIT 并耗尽本机 ephemeral 端口，把「客户端开销」误算成服务端延迟。
+    # 连接池上限与并发对齐，保证不会因为客户端自身限流而低估服务端能力。
+    limits = httpx.Limits(
+        max_connections=args.concurrency,
+        max_keepalive_connections=args.concurrency,
+    )
+    client = httpx.Client(limits=limits)
+    r = client.post(
+        base + "/login/access-token",
+        data={"username": args.email, "password": args.password},
+        timeout=20,
+    )
+    r.raise_for_status()
+    token = r.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     def make(method: str, path: str, kind: str, **kw):
         def _fn():
-            with httpx.Client() as c:
-                return _call(c, method, base + path, headers=headers, **kw)
+            return _call(client, method, base + path, headers=headers, **kw)
 
         return _fn
 
@@ -130,6 +136,7 @@ def main() -> int:
     print(f"合计 {len(rows)} 个场景，未达标 {len(failed)} 个")
     for r in failed:
         print(f"  - {r['name']}: P95 {r['p95_ms']}ms > {r['threshold_ms']}ms，错误率 {r['error_rate']}%，状态码分布 {r['codes']}")
+    client.close()
     return 1 if failed else 0
 
 

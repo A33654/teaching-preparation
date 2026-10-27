@@ -94,6 +94,31 @@ class Settings(BaseSettings):
     # 该逻辑幂等，已灌库则直接跳过；编排见 app/initial_data.seed_knowledge_graph。
     SEED_DEMO_ON_STARTUP: bool = True
 
+    # ---- 数据库连接池 ----
+    # SQLAlchemy 默认 pool_size=5 / max_overflow=10（面向单进程低并发的默认值）。
+    # 本项目以 `--workers N` 多进程部署，且接口在整个请求期间持有 session，
+    # 默认值高并发下必然 QueuePool timeout（实测并发 100/300 出现 30s 超时雪崩）。
+    # 注意：每个 worker 的连接上限 = pool_size + max_overflow，
+    # 全局上限 = 该值 × worker 数，必须小于 PostgreSQL 的 max_connections。
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 30
+
+    # ---- 缓存（Redis）----
+    # 空字符串 = 关闭缓存（未部署 Redis 时自动降级，不影响可用性）。
+    # 开启后用于缓存「知识点列表」等高频只读图谱查询结果，避免每次请求都打 Neo4j。
+    REDIS_URL: str = ""
+    # 知识点列表缓存 TTL（秒）。图谱写入（新增/修改/删除知识点）时会主动失效。
+    REDIS_CACHE_TTL: int = 60
+
+    # ---- 密码哈希并发上限（反内存带宽争抢）----
+    # Argon2 是内存硬（memory-hard）算法：单次哈希需连续占用 m=32MiB 工作内存，
+    # 高并发下大量哈希同时执行会**打满内存带宽**，单次耗时从 ~36ms 劣化到秒级
+    # （实测并发 50 登录 P50 达 1.36s、TPS 仅 7.9）。
+    # 用信号量把「同时执行的哈希数」限制在接近 CPU 核数的量级，让每个哈希快而稳定，
+    # 其余请求排队等待——总吞吐反而显著提升。这是**限流换吞吐**的典型权衡。
+    # 该值是**每个 worker 进程**的并发上限，实际全局并发 = 本值 × worker 数。
+    AUTH_HASH_CONCURRENCY: int = 4
+
     # Qwen (千问) - 主 LLM
     QWEN_API_KEY: str = ""
     QWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"

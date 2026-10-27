@@ -21,13 +21,17 @@ router = APIRouter(tags=["login"])
 
 
 @router.post("/login/access-token")
-def login_access_token(
+async def login_access_token(
     session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token:
     """
     OAuth2 compatible token login, get an access token for future requests
+
+    性能说明：这里走 `crud.authenticate_async`（而非同步版 `authenticate`），
+    把昂贵的 Argon2 校验卸载到线程池并限制并发哈希数——详见 crud 模块注释。
+    同步版会在高并发下打满内存带宽，把单次登录拖到秒级。
     """
-    user = crud.authenticate(
+    user = await crud.authenticate_async(
         session=session, email=form_data.username, password=form_data.password
     )
     if not user:

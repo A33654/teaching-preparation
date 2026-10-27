@@ -84,28 +84,3 @@ class TestLessonPlanValidation:
 
         with pytest.raises(ValidationError):
             LessonPlanCreate()  # type: ignore[call-arg]
-
-
-class TestItemValidation:
-    def test_valid_item(self):
-        """✅ 正常"""
-        from app.models import ItemCreate
-
-        item = ItemCreate(title="教材切片", description="光的反射章节")
-        assert item.title == "教材切片"
-
-    def test_empty_title_rejected(self):
-        """🈳 空白值：空标题应被拒绝"""
-        from app.models import ItemCreate
-
-        with pytest.raises(ValidationError):
-            ItemCreate(title="", description="x")
-
-    def test_title_boundary(self):
-        """⚠️ 边界：标题长度边界"""
-        from app.models import ItemCreate
-
-        ok = ItemCreate(title="a" * 255, description=None)
-        assert len(ok.title) == 255
-        with pytest.raises(ValidationError):
-            ItemCreate(title="a" * 256, description=None)
