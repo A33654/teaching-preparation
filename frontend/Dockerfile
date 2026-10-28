@@ -1,5 +1,5 @@
 # 构建阶段
-FROM node:22-slim AS build
+FROM node:25-slim AS build
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # 运行阶段
-FROM nginx:1.27-alpine
+FROM nginx:1.29-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
